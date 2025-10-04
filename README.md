@@ -11,6 +11,10 @@ Auto-extracting memory system with semantic search powered by Pinecone. FastAPI 
 - **Auto-Pruning**: Maintains memory limit by removing oldest entries
 - **OpenAPI Specification**: Ready for Open WebUI integration
 
+## Attribution
+
+This project's memory management system was derived from [gramanoid's Adaptive Memory filter for Open WebUI](https://github.com/gramanoid/owui-adaptive-memory). The original filter provided the foundation for LLM-based memory extraction, embedding similarity, and semantic deduplication. This implementation refactors those concepts into a standalone MCP server / REST API with simplified architecture for broader platform compatibility.
+
 ## Prerequisites
 
 - Docker and Docker Compose
