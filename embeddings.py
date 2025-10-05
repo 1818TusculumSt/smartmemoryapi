@@ -1,7 +1,7 @@
 import numpy as np
+import httpx
 import logging
 from typing import Optional
-import aiohttp
 from sentence_transformers import SentenceTransformer
 from config import settings
 
@@ -9,64 +9,62 @@ logger = logging.getLogger(__name__)
 
 class EmbeddingProvider:
     """
-    Handles embedding generation using either local models, API endpoints, or Pinecone inference.
+    Async embedding provider with connection pooling.
     
     Supports:
-    - Local: sentence-transformers models (default: all-MiniLM-L6-v2)
-    - API: OpenAI-compatible embedding endpoints
-    - Pinecone: Pinecone's integrated inference API
+    - Local: sentence-transformers
+    - API: OpenAI-compatible
+    - Pinecone: Pinecone inference API
+    
+    Optimizations:
+    - HTTP/2 enabled
+    - Connection pooling
+    - Async operations
     """
     
     def __init__(self):
         self.provider_type = settings.EMBEDDING_PROVIDER
-        self._local_model = None
-        self._session = None
+        self._local_model: Optional[SentenceTransformer] = None
+        self._client: Optional[httpx.AsyncClient] = None
         
         if self.provider_type == "local":
             self._init_local_model()
-        elif self.provider_type == "api":
-            self._validate_api_config()
-        elif self.provider_type == "pinecone":
-            self._validate_pinecone_config()
-        else:
-            raise ValueError(f"Invalid EMBEDDING_PROVIDER: {self.provider_type}. Must be 'local', 'api', or 'pinecone'")
+        
+        logger.info(f"🧠 Embedding provider: {self.provider_type}")
     
     def _init_local_model(self):
         """Initialize local sentence-transformer model"""
         try:
-            logger.info(f"Loading local embedding model: {settings.EMBEDDING_MODEL}")
+            logger.info(f"📥 Loading local model: {settings.EMBEDDING_MODEL}")
             self._local_model = SentenceTransformer(settings.EMBEDDING_MODEL)
-            logger.info(f"Local embedding model loaded successfully (dim: {self._local_model.get_sentence_embedding_dimension()})")
+            dim = self._local_model.get_sentence_embedding_dimension()
+            logger.info(f"✅ Local model loaded (dim: {dim})")
         except Exception as e:
-            logger.error(f"Failed to load local embedding model: {e}")
-            raise RuntimeError(f"Could not initialize local embedding model: {e}")
+            logger.error(f"❌ Failed to load local model: {e}")
+            raise RuntimeError(f"Could not initialize local model: {e}")
     
-    def _validate_api_config(self):
-        """Validate API configuration"""
-        if not settings.EMBEDDING_API_URL:
-            raise ValueError("EMBEDDING_API_URL required for API provider")
-        if not settings.EMBEDDING_API_KEY:
-            raise ValueError("EMBEDDING_API_KEY required for API provider")
-        logger.info(f"Using API embedding provider: {settings.EMBEDDING_API_URL}")
-    
-    def _validate_pinecone_config(self):
-        """Validate Pinecone inference configuration"""
-        if not settings.PINECONE_API_KEY:
-            raise ValueError("PINECONE_API_KEY required for Pinecone inference")
-        logger.info(f"Using Pinecone inference with model: {settings.EMBEDDING_MODEL}")
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create async HTTP client"""
+        if not self._client or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(settings.EMBEDDING_TIMEOUT, connect=10.0),
+                limits=httpx.Limits(
+                    max_keepalive_connections=settings.KEEPALIVE_CONNECTIONS,
+                    max_connections=settings.CONNECTION_POOL_SIZE
+                ),
+                http2=True
+            )
+        return self._client
     
     async def get_embedding(self, text: str) -> Optional[np.ndarray]:
         """
         Get embedding for text using configured provider.
         
-        Args:
-            text: Text to embed
-            
         Returns:
-            Normalized embedding vector as numpy array, or None on error
+            Normalized embedding vector or None on error
         """
         if not text or not text.strip():
-            logger.warning("Empty text provided for embedding")
+            logger.warning("Empty text provided")
             return None
         
         try:
@@ -77,22 +75,19 @@ class EmbeddingProvider:
             elif self.provider_type == "pinecone":
                 return await self._get_pinecone_embedding(text)
             else:
-                logger.error(f"Invalid embedding provider: {self.provider_type}")
+                logger.error(f"Invalid provider: {self.provider_type}")
                 return None
         except Exception as e:
-            logger.error(f"Error getting embedding: {e}", exc_info=True)
+            logger.error(f"💥 Embedding error: {e}", exc_info=True)
             return None
     
     async def _get_local_embedding(self, text: str) -> np.ndarray:
-        """Get embedding from local sentence-transformer model"""
+        """Get embedding from local model"""
         if not self._local_model:
             raise RuntimeError("Local model not initialized")
         
         max_len = 512
         truncated = text[:max_len * 4]
-        
-        if len(text) > len(truncated):
-            logger.debug(f"Truncated text from {len(text)} to {len(truncated)} chars")
         
         try:
             embedding = self._local_model.encode(
@@ -103,162 +98,125 @@ class EmbeddingProvider:
             )
             
             embedding = embedding.astype(np.float32)
-            logger.debug(f"Generated local embedding (dim: {len(embedding)})")
+            logger.debug(f"✅ Local embedding (dim: {len(embedding)})")
             return embedding
-            
         except Exception as e:
-            logger.error(f"Local embedding generation failed: {e}")
+            logger.error(f"❌ Local embedding failed: {e}")
             raise
     
     async def _get_pinecone_embedding(self, text: str) -> Optional[np.ndarray]:
-        """
-        Get embedding from Pinecone's inference API.
+        """Get embedding from Pinecone inference API"""
+        client = await self._get_client()
         
-        Args:
-            text: Text to embed
-            
-        Returns:
-            Normalized embedding vector or None on error
-        """
-        if not self._session:
-            self._session = aiohttp.ClientSession()
-        
-        # Pinecone inference endpoint - updated format
         url = "https://api.pinecone.io/inference/embed"
-        
         headers = {
             "Api-Key": settings.PINECONE_API_KEY,
             "Content-Type": "application/json",
             "X-Pinecone-API-Version": "2024-10"
         }
-        
         data = {
             "model": settings.EMBEDDING_MODEL,
-            "parameters": {
-                "input_type": "passage"
-            },
+            "parameters": {"input_type": "passage"},
             "inputs": [{"text": text}]
         }
         
         try:
-            async with self._session.post(
-                url,
-                json=data,
-                headers=headers,
-                timeout=aiohttp.ClientTimeout(total=settings.EMBEDDING_TIMEOUT)
-            ) as response:
-                
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(f"Pinecone inference API error {response.status}: {error_text}")
-                    return None
-                
-                result = await response.json()
-                
-                # Updated Pinecone format: {"model": "...", "data": [{"values": [...]}], "usage": {...}}
-                if not result.get("data") or len(result["data"]) == 0:
-                    logger.error(f"Invalid Pinecone inference response: {result}")
-                    return None
-                
-                embedding_list = result["data"][0].get("values")
-                
-                if not embedding_list or not isinstance(embedding_list, list):
-                    logger.error("Invalid Pinecone inference response: missing values array")
-                    return None
-                
-                # Convert to numpy array
-                embedding = np.array(embedding_list, dtype=np.float32)
-                
-                # Normalize
-                norm = np.linalg.norm(embedding)
-                if norm > 1e-6:
-                    embedding = embedding / norm
-                else:
-                    logger.warning("Embedding has near-zero norm, cannot normalize")
-                
-                logger.debug(f"Generated Pinecone embedding (dim: {len(embedding)})")
-                return embedding
-                
-        except aiohttp.ClientError as e:
-            logger.error(f"Pinecone inference API request failed: {e}")
+            response = await client.post(url, json=data, headers=headers)
+            
+            if response.status_code != 200:
+                error_text = await response.aread()
+                logger.error(f"❌ Pinecone API error {response.status_code}: {error_text.decode()[:200]}")
+                return None
+            
+            result = response.json()
+            
+            if not result.get("data") or len(result["data"]) == 0:
+                logger.error("Invalid Pinecone response")
+                return None
+            
+            embedding_list = result["data"][0].get("values")
+            
+            if not embedding_list:
+                logger.error("Missing values in Pinecone response")
+                return None
+            
+            embedding = np.array(embedding_list, dtype=np.float32)
+            
+            norm = np.linalg.norm(embedding)
+            if norm > 1e-6:
+                embedding = embedding / norm
+            
+            logger.debug(f"✅ Pinecone embedding (dim: {len(embedding)})")
+            return embedding
+        
+        except httpx.TimeoutException:
+            logger.error("⏱️ Pinecone API timeout")
             return None
         except Exception as e:
-            logger.error(f"Unexpected error in Pinecone inference: {e}", exc_info=True)
+            logger.error(f"💥 Pinecone error: {e}", exc_info=True)
             return None
     
     async def _get_api_embedding(self, text: str) -> Optional[np.ndarray]:
         """Get embedding from OpenAI-compatible API"""
-        if not self._session:
-            self._session = aiohttp.ClientSession()
+        client = await self._get_client()
         
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {settings.EMBEDDING_API_KEY}"
         }
-        
         data = {
             "input": text,
             "model": settings.EMBEDDING_MODEL
         }
         
         try:
-            async with self._session.post(
+            response = await client.post(
                 settings.EMBEDDING_API_URL,
                 json=data,
-                headers=headers,
-                timeout=aiohttp.ClientTimeout(total=settings.EMBEDDING_TIMEOUT)
-            ) as response:
-                
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(f"Embedding API error {response.status}: {error_text}")
-                    return None
-                
-                result = await response.json()
-                
-                if not result.get("data") or len(result["data"]) == 0:
-                    logger.error("Invalid embedding API response: missing data")
-                    return None
-                
-                embedding_list = result["data"][0].get("embedding")
-                
-                if not embedding_list or not isinstance(embedding_list, list):
-                    logger.error("Invalid embedding API response: missing embedding array")
-                    return None
-                
-                embedding = np.array(embedding_list, dtype=np.float32)
-                
-                norm = np.linalg.norm(embedding)
-                if norm > 1e-6:
-                    embedding = embedding / norm
-                else:
-                    logger.warning("Embedding has near-zero norm, cannot normalize")
-                
-                logger.debug(f"Generated API embedding (dim: {len(embedding)})")
-                return embedding
-                
-        except aiohttp.ClientError as e:
-            logger.error(f"Embedding API request failed: {e}")
+                headers=headers
+            )
+            
+            if response.status_code != 200:
+                error_text = await response.aread()
+                logger.error(f"❌ API error {response.status_code}: {error_text.decode()[:200]}")
+                return None
+            
+            result = response.json()
+            
+            if not result.get("data") or len(result["data"]) == 0:
+                logger.error("Invalid API response")
+                return None
+            
+            embedding_list = result["data"][0].get("embedding")
+            
+            if not embedding_list:
+                logger.error("Missing embedding in API response")
+                return None
+            
+            embedding = np.array(embedding_list, dtype=np.float32)
+            
+            norm = np.linalg.norm(embedding)
+            if norm > 1e-6:
+                embedding = embedding / norm
+            
+            logger.debug(f"✅ API embedding (dim: {len(embedding)})")
+            return embedding
+        
+        except httpx.TimeoutException:
+            logger.error("⏱️ API timeout")
             return None
         except Exception as e:
-            logger.error(f"Unexpected error in API embedding: {e}", exc_info=True)
+            logger.error(f"💥 API error: {e}", exc_info=True)
             return None
     
     async def close(self):
-        """Close any open sessions"""
-        if self._session and not self._session.closed:
-            await self._session.close()
-            logger.debug("Closed embedding API session")
+        """Close HTTP client"""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            logger.debug("🔌 Closed embedding client")
     
-    def __del__(self):
-        """Cleanup on deletion"""
-        if self._session and not self._session.closed:
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(self.close())
-                else:
-                    loop.run_until_complete(self.close())
-            except Exception:
-                pass
+    async def __aenter__(self):
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()

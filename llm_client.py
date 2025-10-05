@@ -1,4 +1,4 @@
-import aiohttp
+import httpx
 import asyncio
 import logging
 from typing import Optional
@@ -8,13 +8,13 @@ logger = logging.getLogger(__name__)
 
 class LLMClient:
     """
-    Client for making requests to OpenAI-compatible LLM APIs.
+    Async LLM client with connection pooling and HTTP/2.
     
-    Handles:
-    - Chat completions
-    - Retry logic with exponential backoff
-    - Rate limiting
-    - Error handling
+    Optimizations:
+    - Connection pooling (20 keepalive, 100 max)
+    - HTTP/2 support
+    - Exponential backoff retry logic
+    - Timeout management
     """
     
     def __init__(self):
@@ -24,15 +24,22 @@ class LLMClient:
         self.max_retries = settings.MAX_RETRIES
         self.retry_delay = settings.RETRY_DELAY
         self.timeout = settings.LLM_TIMEOUT
-        self._session = None
+        self._client: Optional[httpx.AsyncClient] = None
         
-        logger.info(f"LLM client initialized: {self.model} at {self.api_url}")
+        logger.info(f"⚡ LLM client initialized: {self.model}")
     
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create aiohttp session"""
-        if not self._session or self._session.closed:
-            self._session = aiohttp.ClientSession()
-        return self._session
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create async HTTP client with pooling"""
+        if not self._client or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self.timeout, connect=10.0),
+                limits=httpx.Limits(
+                    max_keepalive_connections=settings.KEEPALIVE_CONNECTIONS,
+                    max_connections=settings.CONNECTION_POOL_SIZE
+                ),
+                http2=True  # Enable HTTP/2 for performance
+            )
+        return self._client
     
     async def query(
         self,
@@ -42,19 +49,13 @@ class LLMClient:
         max_tokens: int = 2048
     ) -> Optional[str]:
         """
-        Query LLM with retry logic.
+        Query LLM with retry logic and connection pooling.
         
-        Args:
-            system_prompt: System/instruction prompt
-            user_prompt: User message/query
-            temperature: Sampling temperature (0.0 = deterministic)
-            max_tokens: Maximum tokens in response
-            
         Returns:
             LLM response text or None on failure
         """
         if not system_prompt or not user_prompt:
-            logger.error("Empty prompt provided to LLM")
+            logger.error("Empty prompt provided")
             return None
         
         headers = {
@@ -72,115 +73,76 @@ class LLMClient:
             "max_tokens": max_tokens
         }
         
-        session = await self._get_session()
+        client = await self._get_client()
         
         for attempt in range(self.max_retries):
             try:
-                logger.debug(f"LLM request attempt {attempt + 1}/{self.max_retries}")
-                
-                async with session.post(
+                response = await client.post(
                     self.api_url,
                     json=data,
-                    headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=self.timeout)
-                ) as response:
+                    headers=headers
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
                     
-                    # Success case
-                    if response.status == 200:
-                        result = await response.json()
+                    if result.get("choices") and len(result["choices"]) > 0:
+                        message = result["choices"][0].get("message", {})
+                        content = message.get("content")
                         
-                        # Parse OpenAI format
-                        if result.get("choices") and len(result["choices"]) > 0:
-                            message = result["choices"][0].get("message", {})
-                            content = message.get("content")
-                            
-                            if content:
-                                logger.debug(f"LLM response received ({len(content)} chars)")
-                                return content
-                            else:
-                                logger.error("LLM response missing content field")
-                                return None
+                        if content:
+                            logger.debug(f"✅ LLM response: {len(content)} chars")
+                            return content
                         else:
-                            logger.error("LLM response missing choices array")
+                            logger.error("LLM response missing content")
                             return None
-                    
-                    # Rate limit - retry with backoff
-                    elif response.status == 429:
-                        error_text = await response.text()
-                        logger.warning(f"LLM rate limited (429): {error_text[:200]}")
-                        
-                        if attempt < self.max_retries - 1:
-                            wait_time = self.retry_delay * (2 ** attempt)
-                            logger.info(f"Retrying in {wait_time}s...")
-                            await asyncio.sleep(wait_time)
-                            continue
-                        else:
-                            logger.error("Max retries reached for rate limit")
-                            return None
-                    
-                    # Server errors - retry
-                    elif response.status in [500, 502, 503, 504]:
-                        error_text = await response.text()
-                        logger.warning(f"LLM server error ({response.status}): {error_text[:200]}")
-                        
-                        if attempt < self.max_retries - 1:
-                            wait_time = self.retry_delay * (2 ** attempt)
-                            logger.info(f"Retrying in {wait_time}s...")
-                            await asyncio.sleep(wait_time)
-                            continue
-                        else:
-                            logger.error("Max retries reached for server error")
-                            return None
-                    
-                    # Client errors - don't retry
                     else:
-                        error_text = await response.text()
-                        logger.error(f"LLM API error ({response.status}): {error_text[:500]}")
+                        logger.error("LLM response missing choices")
                         return None
-            
-            except asyncio.TimeoutError:
-                logger.warning(f"LLM request timeout (attempt {attempt + 1}/{self.max_retries})")
                 
-                if attempt < self.max_retries - 1:
-                    wait_time = self.retry_delay * (2 ** attempt)
-                    await asyncio.sleep(wait_time)
-                    continue
+                elif response.status_code == 429:
+                    logger.warning(f"⏳ Rate limited (429), attempt {attempt + 1}/{self.max_retries}")
+                    if attempt < self.max_retries - 1:
+                        wait_time = self.retry_delay * (2 ** attempt)
+                        await asyncio.sleep(wait_time)
+                        continue
+                    return None
+                
+                elif response.status_code in [500, 502, 503, 504]:
+                    logger.warning(f"🔥 Server error ({response.status_code}), attempt {attempt + 1}/{self.max_retries}")
+                    if attempt < self.max_retries - 1:
+                        wait_time = self.retry_delay * (2 ** attempt)
+                        await asyncio.sleep(wait_time)
+                        continue
+                    return None
+                
                 else:
-                    logger.error("Max retries reached for timeout")
+                    error_text = await response.aread()
+                    logger.error(f"❌ LLM error ({response.status_code}): {error_text.decode()[:200]}")
                     return None
             
-            except aiohttp.ClientError as e:
-                logger.error(f"LLM connection error (attempt {attempt + 1}/{self.max_retries}): {e}")
-                
+            except httpx.TimeoutException:
+                logger.warning(f"⏱️ Timeout, attempt {attempt + 1}/{self.max_retries}")
                 if attempt < self.max_retries - 1:
-                    wait_time = self.retry_delay * (2 ** attempt)
-                    await asyncio.sleep(wait_time)
+                    await asyncio.sleep(self.retry_delay * (2 ** attempt))
                     continue
-                else:
-                    logger.error("Max retries reached for connection error")
-                    return None
+                return None
             
             except Exception as e:
-                logger.error(f"Unexpected LLM error: {e}", exc_info=True)
+                logger.error(f"💥 Unexpected error: {e}", exc_info=True)
                 return None
         
-        logger.error("LLM query failed after all retries")
+        logger.error("❌ LLM query failed after all retries")
         return None
     
     async def close(self):
-        """Close session"""
-        if self._session and not self._session.closed:
-            await self._session.close()
-            logger.debug("Closed LLM client session")
+        """Close HTTP client"""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            logger.debug("🔌 Closed LLM client")
     
-    def __del__(self):
-        """Cleanup on deletion"""
-        if self._session and not self._session.closed:
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(self.close())
-                else:
-                    loop.run_until_complete(self.close())
-            except Exception:
-                pass
+    async def __aenter__(self):
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()

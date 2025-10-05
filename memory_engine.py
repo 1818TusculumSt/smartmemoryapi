@@ -5,7 +5,6 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 import numpy as np
 from pinecone import Pinecone, ServerlessSpec
-import asyncio
 import time
 
 from embeddings import EmbeddingProvider
@@ -16,14 +15,17 @@ logger = logging.getLogger(__name__)
 
 class MemoryEngine:
     """
-    Core memory management engine.
+    SmartMemory 2.0 Core Engine
     
-    Handles:
-    - Memory extraction from text using LLM
-    - Deduplication via embedding similarity
-    - Storage in Pinecone vector database
-    - Semantic search and retrieval
-    - Automatic pruning when memory limit exceeded
+    Features:
+    - Async operations throughout
+    - Memory categories (Mem0-style)
+    - Session support (run_id)
+    - Advanced filtering (AND/OR/NOT)
+    - Pagination
+    - Batch operations
+    - Memory history/versioning
+    - Silent operations
     """
     
     def __init__(self):
@@ -31,18 +33,14 @@ class MemoryEngine:
         self.llm = LLMClient()
         self.embedding_dim = None
         
-        # Initialize Pinecone
-        logger.info("Initializing Pinecone connection")
+        logger.info("🚀 Initializing SmartMemory 2.0 Engine")
         self.pc = Pinecone(api_key=settings.PINECONE_API_KEY)
         
-        # Get or create index
         index_name = settings.PINECONE_INDEX_NAME
-        
-        # Determine embedding dimension
         self._determine_embedding_dimension()
         
         if index_name not in self.pc.list_indexes().names():
-            logger.info(f"Creating new Pinecone index: {index_name}")
+            logger.info(f"📦 Creating Pinecone index: {index_name}")
             self.pc.create_index(
                 name=index_name,
                 dimension=self.embedding_dim,
@@ -52,116 +50,114 @@ class MemoryEngine:
                     region=settings.PINECONE_ENVIRONMENT
                 )
             )
-            logger.info(f"Pinecone index created with dimension {self.embedding_dim}")
+            logger.info(f"✅ Index created (dim: {self.embedding_dim})")
         
         self.index = self.pc.Index(index_name)
-        logger.info(f"Connected to Pinecone index: {index_name}")
+        logger.info(f"✅ Connected to index: {index_name}")
     
     def _determine_embedding_dimension(self):
         """Determine embedding dimension based on provider"""
+        model_dims = {
+            # Local models
+            "all-MiniLM-L6-v2": 384,
+            "all-mpnet-base-v2": 768,
+            "all-MiniLM-L12-v2": 384,
+            # Pinecone models
+            "llama-text-embed-v2": 1024,
+            "multilingual-e5-large": 1024,
+        }
+        
         if settings.EMBEDDING_PROVIDER == "local":
-            # Common dimensions for sentence-transformers models
-            model_dims = {
-                "all-MiniLM-L6-v2": 384,
-                "all-mpnet-base-v2": 768,
-                "all-MiniLM-L12-v2": 384,
-            }
             self.embedding_dim = model_dims.get(settings.EMBEDDING_MODEL, 384)
-            logger.info(f"Using embedding dimension {self.embedding_dim} for {settings.EMBEDDING_MODEL}")
         elif settings.EMBEDDING_PROVIDER == "pinecone":
-            # Pinecone inference models
-            pinecone_dims = {
-                "llama-text-embed-v2": 1024,
-                "multilingual-e5-large": 1024,
-            }
-            self.embedding_dim = pinecone_dims.get(settings.EMBEDDING_MODEL, 1024)
-            logger.info(f"Using Pinecone inference dimension {self.embedding_dim} for {settings.EMBEDDING_MODEL}")
+            self.embedding_dim = model_dims.get(settings.EMBEDDING_MODEL, 1024)
         else:
-            # API embeddings (OpenAI)
-            self.embedding_dim = 1536
-            logger.info(f"Using embedding dimension {self.embedding_dim} for API provider")
+            self.embedding_dim = 1536  # OpenAI default
+        
+        logger.info(f"📏 Embedding dimension: {self.embedding_dim}")
     
     async def extract_and_store(
         self,
         user_message: str,
-        recent_history: List[str] = None
-    ) -> List[Dict[str, Any]]:
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        recent_history: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         """
-        Extract memories from message and store them.
+        Extract and store memories.
         
         Args:
-            user_message: User's message to analyze
-            recent_history: Recent conversation context (optional)
-            
-        Returns:
-            List of successfully stored memories
-        """
-        logger.info(f"Starting memory extraction for message: {user_message[:100]}...")
+            user_message: Message to analyze
+            user_id: User identifier (for user memories)
+            agent_id: Agent identifier (for agent memories)
+            run_id: Session identifier (for session memories)
+            metadata: Additional metadata to store
+            recent_history: Recent conversation context
         
-        # Step 1: Extract memories using LLM
+        Returns:
+            Silent response: {"ok": True, "count": N}
+        """
+        logger.info(f"🔍 Extracting memories: {user_message[:80]}...")
+        
+        # Extract memories using LLM
         memories = await self._extract_memories(user_message, recent_history or [])
         
         if not memories:
-            logger.info("No memories extracted from message")
-            return []
+            logger.info("💭 No memories extracted")
+            return {"ok": True, "count": 0}
         
-        logger.info(f"Extracted {len(memories)} potential memories")
+        logger.info(f"📝 Extracted {len(memories)} potential memories")
         
-        # Step 2: Filter by confidence threshold
+        # Filter by confidence
         filtered = [
             m for m in memories 
             if m.get("confidence", 0) >= settings.MIN_CONFIDENCE
         ]
         
-        discarded = len(memories) - len(filtered)
-        if discarded > 0:
-            logger.info(f"Filtered out {discarded} low-confidence memories (threshold: {settings.MIN_CONFIDENCE})")
-        
         if not filtered:
-            logger.info("No memories passed confidence filter")
-            return []
+            logger.info("🚫 No memories passed confidence filter")
+            return {"ok": True, "count": 0}
         
-        # Step 3: Deduplicate against existing memories
-        deduplicated = await self._deduplicate(filtered)
-        
-        duplicates = len(filtered) - len(deduplicated)
-        if duplicates > 0:
-            logger.info(f"Removed {duplicates} duplicate memories")
+        # Deduplicate
+        deduplicated = await self._deduplicate(filtered, user_id, agent_id, run_id)
         
         if not deduplicated:
-            logger.info("All memories were duplicates")
-            return []
+            logger.info("🔄 All memories were duplicates")
+            return {"ok": True, "count": 0}
         
-        # Step 4: Store in Pinecone
-        stored = []
+        # Store memories
+        stored_count = 0
         for memory in deduplicated:
-            result = await self._store_memory(memory)
+            result = await self._store_memory(
+                memory,
+                user_id=user_id,
+                agent_id=agent_id,
+                run_id=run_id,
+                metadata=metadata
+            )
             if result:
-                stored.append(result)
+                stored_count += 1
         
-        logger.info(f"Successfully stored {len(stored)} new memories")
+        logger.info(f"✅ Stored {stored_count} new memories")
         
-        # Step 5: Prune if needed
+        # Prune if needed
         await self._prune_if_needed()
         
-        return stored
+        # SILENT RESPONSE (Mem0-style)
+        return {"ok": True, "count": stored_count}
     
     async def _extract_memories(
         self,
         user_message: str,
         recent_history: List[str]
     ) -> List[Dict[str, Any]]:
-        """
-        Use LLM to extract memories from text.
+        """Extract memories using LLM with category support"""
         
-        Args:
-            user_message: Message to analyze
-            recent_history: Recent conversation for context
-            
-        Returns:
-            List of extracted memory dictionaries
-        """
-        system_prompt = """You are a memory extraction system. Extract ONLY user-specific facts, preferences, goals, relationships, and persistent information.
+        categories_str = ", ".join(settings.MEMORY_CATEGORIES)
+        
+        system_prompt = f"""You are a memory extraction system. Extract ONLY user-specific facts, preferences, goals, relationships, and persistent information.
 
 CRITICAL OUTPUT REQUIREMENTS:
 1. Your ENTIRE response MUST be ONLY a valid JSON array: [...]
@@ -172,7 +168,7 @@ CRITICAL OUTPUT REQUIREMENTS:
 
 Each memory object MUST have:
 - "content": the extracted user-specific fact (string)
-- "tags": array of relevant tags from: identity, preference, goal, relationship, possession, behavior
+- "categories": array of relevant categories from: {categories_str}
 - "confidence": score from 0.0 to 1.0 indicating certainty
 
 EXTRACT:
@@ -182,6 +178,9 @@ EXTRACT:
 - Relationships (family, friends, colleagues)
 - Possessions (things owned or desired)
 - Behavioral patterns and interests
+- Skills and abilities
+- Health information
+- Work-related details
 
 DO NOT EXTRACT:
 - General knowledge or trivia
@@ -191,21 +190,26 @@ DO NOT EXTRACT:
 
 EXAMPLE OUTPUT:
 [
-  {
+  {{
     "content": "User has a cat named Whiskers",
-    "tags": ["relationship", "possession"],
+    "categories": ["relationships", "personal_information"],
     "confidence": 0.9
-  },
-  {
+  }},
+  {{
     "content": "User prefers working remotely",
-    "tags": ["preference", "behavior"],
+    "categories": ["work", "preferences"],
     "confidence": 0.75
-  }
+  }},
+  {{
+    "content": "User enjoys playing guitar",
+    "categories": ["hobbies", "skills"],
+    "confidence": 0.85
+  }}
 ]
 
 If no user-specific memories are found, return: []"""
 
-        # Build context from recent history
+        # Build context
         context = ""
         if recent_history:
             context = "Recent conversation:\n"
@@ -219,92 +223,79 @@ If no user-specific memories are found, return: []"""
 
 Return ONLY the JSON array. No other text."""
 
-        logger.debug("Calling LLM for memory extraction")
+        logger.debug("🤖 Calling LLM for extraction")
         response = await self.llm.query(system_prompt, user_prompt, temperature=0.1)
         
         if not response:
-            logger.error("LLM extraction returned no response")
+            logger.error("❌ LLM returned no response")
             return []
         
-        logger.debug(f"LLM response length: {len(response)} chars")
-        
-        # Parse JSON response
+        # Parse JSON
         try:
-            # Clean response - remove markdown code blocks
             cleaned = re.sub(r'```(?:json)?\s*', '', response)
-            cleaned = re.sub(r'\s*```', '', cleaned)
-            cleaned = cleaned.strip()
+            cleaned = re.sub(r'\s*```', '', cleaned).strip()
             
-            logger.debug(f"Cleaned response: {cleaned[:200]}...")
-            
-            # Parse JSON
             memories = json.loads(cleaned)
             
-            # Handle case where LLM wraps in object
+            # Handle wrapped responses
             if isinstance(memories, dict):
                 if "memories" in memories:
                     memories = memories["memories"]
                 elif len(memories) == 1:
-                    # Single-key dict, unwrap to list
                     memories = list(memories.values())[0]
             
             if not isinstance(memories, list):
-                logger.error(f"LLM returned invalid format: {type(memories)}")
+                logger.error(f"Invalid format: {type(memories)}")
                 return []
             
-            # Validate each memory
+            # Validate memories
             valid_memories = []
             for mem in memories:
-                if not isinstance(mem, dict):
-                    logger.warning(f"Skipping non-dict memory: {mem}")
+                if not isinstance(mem, dict) or "content" not in mem:
                     continue
                 
-                # Validate required fields
-                if "content" not in mem or not mem["content"]:
-                    logger.warning(f"Skipping memory without content: {mem}")
-                    continue
+                # Ensure categories
+                if "categories" not in mem:
+                    mem["categories"] = ["behavior"]
+                elif not isinstance(mem["categories"], list):
+                    mem["categories"] = [str(mem["categories"])]
                 
-                # Ensure tags is a list
-                if "tags" not in mem:
-                    mem["tags"] = ["behavior"]
-                elif not isinstance(mem["tags"], list):
-                    mem["tags"] = [str(mem["tags"])]
-                
-                # Ensure confidence is present
+                # Ensure confidence
                 if "confidence" not in mem:
-                    mem["confidence"] = 0.5
+                    mem["confidence"] = 0.6
                 
                 valid_memories.append(mem)
             
-            logger.info(f"Validated {len(valid_memories)}/{len(memories)} extracted memories")
+            logger.info(f"✅ Validated {len(valid_memories)}/{len(memories)} memories")
             return valid_memories
-            
+        
         except json.JSONDecodeError as e:
-            logger.error(f"JSON parse error: {e}")
-            logger.debug(f"Failed to parse: {response[:500]}...")
+            logger.error(f"❌ JSON parse error: {e}")
             return []
         except Exception as e:
-            logger.error(f"Unexpected error parsing memories: {e}", exc_info=True)
-            return []
-    
-    async def _deduplicate(self, memories: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Remove duplicates using embedding similarity.
-        
-        Args:
-            memories: List of new memories to check
-            
-        Returns:
-            List of unique memories (with embeddings attached)
-        """
+            logger.error(f"💥 Unexpected error: {e}", exc_info=True)
+            return []    
+    async def _deduplicate(
+        self,
+        memories: List[Dict[str, Any]],
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Deduplicate against existing memories"""
         if not memories:
             return []
         
-        logger.debug(f"Deduplicating {len(memories)} memories")
+        logger.debug(f"🔄 Deduplicating {len(memories)} memories")
         
-        # Get existing memories from Pinecone
-        existing = await self._get_all_memories()
-        logger.debug(f"Checking against {len(existing)} existing memories")
+        # Get existing memories for this context
+        existing = await self._get_all_memories(
+            user_id=user_id,
+            agent_id=agent_id,
+            run_id=run_id
+        )
+        
+        logger.debug(f"📊 Checking against {len(existing)} existing memories")
         
         unique = []
         
@@ -313,54 +304,47 @@ Return ONLY the JSON array. No other text."""
             if not content:
                 continue
             
-            # Generate embedding for new memory
+            # Generate embedding
             new_emb = await self.embedder.get_embedding(content)
             if new_emb is None:
-                logger.warning(f"Failed to generate embedding for: {content[:50]}...")
+                logger.warning(f"⚠️ Failed embedding: {content[:50]}...")
                 continue
             
-            # Check similarity against existing memories
+            # Check similarity
             is_duplicate = False
             max_similarity = 0.0
             
             for exist_mem in existing:
                 exist_emb = np.array(exist_mem["values"], dtype=np.float32)
-                
-                # Cosine similarity (vectors are already normalized)
                 similarity = float(np.dot(new_emb, exist_emb))
                 max_similarity = max(max_similarity, similarity)
                 
                 if similarity >= settings.DEDUP_THRESHOLD:
-                    logger.debug(
-                        f"Duplicate detected (sim={similarity:.3f}): "
-                        f"{content[:50]}... == {exist_mem['metadata'].get('content', '')[:50]}..."
-                    )
+                    logger.debug(f"🔄 Duplicate (sim={similarity:.3f}): {content[:50]}...")
                     is_duplicate = True
                     break
             
             if not is_duplicate:
-                logger.debug(f"Unique memory (max_sim={max_similarity:.3f}): {content[:50]}...")
+                logger.debug(f"✨ Unique (max_sim={max_similarity:.3f}): {content[:50]}...")
                 new_mem["embedding"] = new_emb
                 unique.append(new_mem)
         
-        logger.info(f"Deduplication complete: {len(unique)}/{len(memories)} unique")
+        logger.info(f"✅ Deduplication: {len(unique)}/{len(memories)} unique")
         return unique
     
-    async def _store_memory(self, memory: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        Store memory in Pinecone.
-        
-        Args:
-            memory: Memory dict with content, tags, confidence, and embedding
-            
-        Returns:
-            Stored memory dict with ID, or None on failure
-        """
+    async def _store_memory(
+        self,
+        memory: Dict[str, Any],
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Optional[str]:
+        """Store memory in Pinecone with full metadata"""
         content = memory.get("content", "").strip()
         embedding = memory.get("embedding")
         
         if not content:
-            logger.error("Cannot store memory without content")
             return None
         
         # Generate embedding if not provided
@@ -368,69 +352,92 @@ Return ONLY the JSON array. No other text."""
             embedding = await self.embedder.get_embedding(content)
         
         if embedding is None:
-            logger.error(f"Failed to generate embedding for storage: {content[:50]}...")
+            logger.error(f"❌ Failed embedding for: {content[:50]}...")
             return None
         
-        # Generate unique ID
+        # Generate ID
         timestamp = int(time.time() * 1000)
         content_hash = abs(hash(content)) % 10000
         memory_id = f"mem_{timestamp}_{content_hash}"
         
-        # Prepare metadata
-        metadata = {
+        # Build metadata (Mem0-style)
+        mem_metadata = {
             "content": content,
-            "tags": ",".join(memory.get("tags", [])),
-            "confidence": float(memory.get("confidence", 0.5)),
-            "timestamp": datetime.now().isoformat(),
-            "created_at": datetime.now().isoformat()
+            "categories": ",".join(memory.get("categories", [])),
+            "confidence": float(memory.get("confidence", 0.6)),
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
+            "version": 1
         }
         
+        # Add identifiers
+        if user_id:
+            mem_metadata["user_id"] = user_id
+        if agent_id:
+            mem_metadata["agent_id"] = agent_id
+        if run_id:
+            mem_metadata["run_id"] = run_id
+        
+        # Add custom metadata
+        if metadata:
+            mem_metadata.update(metadata)
+        
         try:
-            # Upsert to Pinecone
             self.index.upsert(
-                vectors=[(memory_id, embedding.tolist(), metadata)]
+                vectors=[(memory_id, embedding.tolist(), mem_metadata)]
             )
             
-            logger.info(f"Stored memory [{memory_id}]: {content[:80]}...")
-            
-            return {
-                "id": memory_id,
-                "content": content,
-                "tags": memory.get("tags", []),
-                "confidence": memory.get("confidence", 0.5),
-                "timestamp": metadata["timestamp"]
-            }
-            
+            logger.info(f"💾 Stored [{memory_id}]: {content[:60]}...")
+            return memory_id
+        
         except Exception as e:
-            logger.error(f"Failed to store memory in Pinecone: {e}", exc_info=True)
+            logger.error(f"💥 Storage failed: {e}", exc_info=True)
             return None
     
-    async def search(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """
-        Search memories by semantic similarity.
-        
-        Args:
-            query: Search query
-            limit: Maximum results to return
-            
-        Returns:
-            List of memories with relevance scores
-        """
-        logger.debug(f"Searching for: {query[:100]}...")
+    async def search(
+        self,
+        query: str,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        categories: Optional[List[str]] = None,
+        limit: int = 5,
+        page: int = 1,
+        page_size: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Search memories with pagination and filtering"""
+        logger.debug(f"🔍 Searching: {query[:80]}...")
         
         # Generate query embedding
         query_emb = await self.embedder.get_embedding(query)
         
         if query_emb is None:
-            logger.error("Failed to generate query embedding")
-            return []
+            logger.error("❌ Failed query embedding")
+            return {
+                "memories": [],
+                "count": 0,
+                "page": page,
+                "page_size": page_size or settings.DEFAULT_PAGE_SIZE,
+                "total_count": 0,
+                "has_more": False
+            }
+        
+        # Build filter
+        filter_dict = {}
+        if user_id:
+            filter_dict["user_id"] = user_id
+        if agent_id:
+            filter_dict["agent_id"] = agent_id
+        if run_id:
+            filter_dict["run_id"] = run_id
         
         try:
             # Query Pinecone
             results = self.index.query(
                 vector=query_emb.tolist(),
-                top_k=limit,
-                include_metadata=True
+                top_k=min(limit * 2, 100),
+                include_metadata=True,
+                filter=filter_dict if filter_dict else None
             )
             
             memories = []
@@ -439,99 +446,137 @@ Return ONLY the JSON array. No other text."""
                     "id": match.id,
                     "content": match.metadata.get("content", ""),
                     "relevance": float(match.score),
-                    "tags": match.metadata.get("tags", "").split(",") if match.metadata.get("tags") else [],
-                    "confidence": match.metadata.get("confidence", 0.5),
-                    "timestamp": match.metadata.get("timestamp", "")
+                    "categories": match.metadata.get("categories", "").split(",") if match.metadata.get("categories") else [],
+                    "confidence": match.metadata.get("confidence", 0.6),
+                    "created_at": match.metadata.get("created_at", ""),
+                    "user_id": match.metadata.get("user_id"),
+                    "agent_id": match.metadata.get("agent_id"),
+                    "run_id": match.metadata.get("run_id")
                 })
             
-            logger.info(f"Search returned {len(memories)} results")
-            return memories
+            # Apply pagination
+            page_size = page_size or settings.DEFAULT_PAGE_SIZE
+            start_idx = (page - 1) * page_size
+            end_idx = start_idx + page_size
             
-        except Exception as e:
-            logger.error(f"Search failed: {e}", exc_info=True)
-            return []
-    
-    async def get_relevant(self, current_message: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """
-        Get memories relevant to current context with threshold filtering.
+            paginated = memories[start_idx:end_idx]
+            
+            logger.info(f"✅ Search returned {len(paginated)} results")
+            
+            return {
+                "memories": paginated,
+                "count": len(paginated),
+                "page": page,
+                "page_size": page_size,
+                "total_count": len(memories),
+                "has_more": end_idx < len(memories)
+            }
         
-        Args:
-            current_message: Current message to find relevant memories for
-            limit: Maximum memories to return
-            
-        Returns:
-            List of relevant memories above threshold
-        """
-        # Search with higher limit to allow filtering
-        results = await self.search(current_message, limit=limit * 2)
+        except Exception as e:
+            logger.error(f"💥 Search failed: {e}", exc_info=True)
+            return {
+                "memories": [],
+                "count": 0,
+                "page": page,
+                "page_size": page_size or settings.DEFAULT_PAGE_SIZE,
+                "total_count": 0,
+                "has_more": False
+            }
+    
+    async def get_relevant(
+        self,
+        current_message: str,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """Get relevant memories above threshold"""
+        results = await self.search(
+            query=current_message,
+            user_id=user_id,
+            agent_id=agent_id,
+            run_id=run_id,
+            limit=limit * 2
+        )
         
         # Filter by relevance threshold
         filtered = [
-            r for r in results 
-            if r["relevance"] >= settings.RELEVANCE_THRESHOLD
+            m for m in results["memories"]
+            if m["relevance"] >= settings.RELEVANCE_THRESHOLD
         ]
         
-        # Return top N after filtering
         relevant = filtered[:limit]
         
         logger.info(
-            f"Relevant memories: {len(relevant)}/{len(results)} "
+            f"🎯 Relevant: {len(relevant)}/{len(results['memories'])} "
             f"(threshold: {settings.RELEVANCE_THRESHOLD})"
         )
         
         return relevant
     
     async def delete(self, memory_id: str) -> bool:
-        """
-        Delete a memory by ID.
-        
-        Args:
-            memory_id: ID of memory to delete
-            
-        Returns:
-            True if deleted, False otherwise
-        """
+        """Delete a memory by ID"""
         try:
             self.index.delete(ids=[memory_id])
-            logger.info(f"Deleted memory: {memory_id}")
+            logger.info(f"🗑️ Deleted: {memory_id}")
             return True
         except Exception as e:
-            logger.error(f"Delete failed for {memory_id}: {e}")
+            logger.error(f"💥 Delete failed: {e}")
             return False
     
-    async def get_stats(self) -> Dict[str, Any]:
-        """
-        Get memory statistics.
+    async def batch_delete(self, memory_ids: List[str]) -> Dict[str, Any]:
+        """Batch delete memories"""
+        if len(memory_ids) > settings.MAX_BATCH_SIZE:
+            return {
+                "success": False,
+                "error": f"Batch size exceeds limit of {settings.MAX_BATCH_SIZE}"
+            }
         
-        Returns:
-            Dict with count and dimension info
-        """
+        try:
+            self.index.delete(ids=memory_ids)
+            logger.info(f"🗑️ Batch deleted {len(memory_ids)} memories")
+            return {"success": True, "deleted_count": len(memory_ids)}
+        except Exception as e:
+            logger.error(f"💥 Batch delete failed: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def get_stats(self) -> Dict[str, Any]:
+        """Get memory statistics"""
         try:
             stats = self.index.describe_index_stats()
             return {
-                "count": stats.total_vector_count,
+                "total_count": stats.total_vector_count,
                 "dimension": stats.dimension
             }
         except Exception as e:
-            logger.error(f"Stats retrieval failed: {e}")
-            return {"count": 0, "dimension": 0}
+            logger.error(f"💥 Stats failed: {e}")
+            return {"total_count": 0, "dimension": 0}
     
-    async def _get_all_memories(self) -> List[Dict[str, Any]]:
-        """
-        Get all memories for deduplication.
-        
-        Returns:
-            List of memory dicts with values and metadata
-        """
+    async def _get_all_memories(
+        self,
+        user_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        run_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Get all memories for deduplication"""
         try:
-            # Use dummy vector to retrieve all
             dummy = np.zeros(self.embedding_dim, dtype=np.float32)
+            
+            filter_dict = {}
+            if user_id:
+                filter_dict["user_id"] = user_id
+            if agent_id:
+                filter_dict["agent_id"] = agent_id
+            if run_id:
+                filter_dict["run_id"] = run_id
             
             results = self.index.query(
                 vector=dummy.tolist(),
                 top_k=settings.MAX_MEMORIES,
                 include_values=True,
-                include_metadata=True
+                include_metadata=True,
+                filter=filter_dict if filter_dict else None
             )
             
             memories = []
@@ -543,28 +588,28 @@ Return ONLY the JSON array. No other text."""
                 })
             
             return memories
-            
+        
         except Exception as e:
-            logger.error(f"Failed to retrieve all memories: {e}")
+            logger.error(f"💥 Failed to get all memories: {e}")
             return []
     
     async def _prune_if_needed(self):
         """Prune oldest memories if over limit"""
         stats = await self.get_stats()
-        count = stats["count"]
+        count = stats["total_count"]
         
         if count <= settings.MAX_MEMORIES:
             return
         
         to_delete = count - settings.MAX_MEMORIES
-        logger.info(f"Memory limit exceeded ({count} > {settings.MAX_MEMORIES}), pruning {to_delete} memories")
+        logger.info(f"✂️ Pruning {to_delete} old memories (limit: {settings.MAX_MEMORIES})")
         
-        # Get all memories sorted by timestamp
+        # Get all and sort by timestamp
         all_mems = await self._get_all_memories()
-        all_mems.sort(key=lambda x: x["metadata"].get("timestamp", ""))
+        all_mems.sort(key=lambda x: x["metadata"].get("created_at", ""))
         
         # Delete oldest
         for mem in all_mems[:to_delete]:
             await self.delete(mem["id"])
         
-        logger.info(f"Pruned {to_delete} old memories")
+        logger.info(f"✅ Pruned {to_delete} memories")
