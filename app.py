@@ -54,7 +54,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# REQUEST/RESPONSE MODELS
+# REQUEST MODELS
 class AddMemoryRequest(BaseModel):
     """Add memory request (Mem0-compatible)"""
     messages: Optional[List[Dict[str, str]]] = Field(
@@ -86,11 +86,6 @@ class AddMemoryRequest(BaseModel):
         description="Recent conversation context"
     )
 
-class AddMemoryResponse(BaseModel):
-    """Silent response (Mem0-style)"""
-    ok: bool
-    count: int
-
 class SearchRequest(BaseModel):
     """Search memories request"""
     query: str = Field(..., description="Search query")
@@ -102,15 +97,6 @@ class SearchRequest(BaseModel):
     page: int = Field(default=1, ge=1)
     page_size: Optional[int] = Field(default=None, ge=1, le=100)
 
-class SearchResponse(BaseModel):
-    """Search response with pagination"""
-    memories: List[Dict[str, Any]]
-    count: int
-    page: int
-    page_size: int
-    total_count: int
-    has_more: bool
-
 class GetRelevantRequest(BaseModel):
     """Get relevant memories request"""
     current_message: str = Field(..., description="Current message")
@@ -119,20 +105,9 @@ class GetRelevantRequest(BaseModel):
     run_id: Optional[str] = None
     limit: int = Field(default=5, ge=1, le=20)
 
-class GetRelevantResponse(BaseModel):
-    """Get relevant response"""
-    memories: List[Dict[str, Any]]
-    count: int
-
 class BatchDeleteRequest(BaseModel):
     """Batch delete request"""
     memory_ids: List[str] = Field(..., description="List of memory IDs to delete")
-
-class BatchDeleteResponse(BaseModel):
-    """Batch delete response"""
-    success: bool
-    deleted_count: Optional[int] = None
-    error: Optional[str] = None
 
 class StatusResponse(BaseModel):
     """System status response"""
@@ -177,19 +152,12 @@ async def root():
         }
     }
 
-@app.post("/add", response_model=AddMemoryResponse, tags=["Memory Operations"])
+@app.post("/add", tags=["Memory Operations"])
 async def add_memory(request: AddMemoryRequest):
     """
     Add memory with silent response (Mem0-compatible).
     
-    Supports:
-    - messages: List of message dicts (Mem0 format)
-    - user_message: Direct string message
-    - user_id/agent_id/run_id: Memory identifiers
-    - metadata: Custom metadata
-    
-    Returns:
-        {"ok": True, "count": N} - Silent response
+    Returns only {"ok": true} - nothing else
     """
     if not memory_engine:
         raise HTTPException(status_code=503, detail="Engine not initialized")
@@ -212,7 +180,7 @@ async def add_memory(request: AddMemoryRequest):
         raise HTTPException(status_code=400, detail="No message content provided")
     
     try:
-        result = await memory_engine.extract_and_store(
+        await memory_engine.extract_and_store(
             user_message=user_message,
             user_id=request.user_id,
             agent_id=request.agent_id,
@@ -221,22 +189,19 @@ async def add_memory(request: AddMemoryRequest):
             recent_history=request.recent_history or []
         )
         
-        return AddMemoryResponse(**result)
+        # Silent response - just ok, nothing else
+        return {"ok": True}
     
     except Exception as e:
         logger.error(f"💥 Add memory error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/search", response_model=SearchResponse, tags=["Memory Retrieval"])
+@app.post("/search", tags=["Memory Retrieval"])
 async def search_memories(request: SearchRequest):
     """
     Search memories with advanced filtering and pagination.
     
-    Supports:
-    - Semantic search
-    - Filter by user_id/agent_id/run_id
-    - Category filtering
-    - Pagination
+    Returns only memories list, no metadata
     """
     if not memory_engine:
         raise HTTPException(status_code=503, detail="Engine not initialized")
@@ -253,18 +218,19 @@ async def search_memories(request: SearchRequest):
             page_size=request.page_size
         )
         
-        return SearchResponse(**result)
+        # Return just memories, no count or pagination metadata
+        return {"memories": result["memories"]}
     
     except Exception as e:
         logger.error(f"💥 Search error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/relevant", response_model=GetRelevantResponse, tags=["Memory Retrieval"])
+@app.post("/relevant", tags=["Memory Retrieval"])
 async def get_relevant_memories(request: GetRelevantRequest):
     """
     Get memories relevant to current context.
     
-    Returns only memories above relevance threshold.
+    Returns only memories above relevance threshold
     """
     if not memory_engine:
         raise HTTPException(status_code=503, detail="Engine not initialized")
@@ -278,10 +244,8 @@ async def get_relevant_memories(request: GetRelevantRequest):
             limit=request.limit
         )
         
-        return GetRelevantResponse(
-            memories=memories,
-            count=len(memories)
-        )
+        # Return just memories list, no count
+        return {"memories": memories}
     
     except Exception as e:
         logger.error(f"💥 Relevant error: {e}", exc_info=True)
@@ -299,11 +263,8 @@ async def delete_memory(memory_id: str):
         if not success:
             raise HTTPException(status_code=404, detail=f"Memory not found: {memory_id}")
         
-        return {
-            "success": True,
-            "memory_id": memory_id,
-            "message": "Memory deleted"
-        }
+        # Silent response - just ok
+        return {"ok": True}
     
     except HTTPException:
         raise
@@ -311,7 +272,7 @@ async def delete_memory(memory_id: str):
         logger.error(f"💥 Delete error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/batch/delete", response_model=BatchDeleteResponse, tags=["Batch Operations"])
+@app.post("/batch/delete", tags=["Batch Operations"])
 async def batch_delete_memories(request: BatchDeleteRequest):
     """
     Batch delete memories (up to 1000 at once).
@@ -321,7 +282,9 @@ async def batch_delete_memories(request: BatchDeleteRequest):
     
     try:
         result = await memory_engine.batch_delete(request.memory_ids)
-        return BatchDeleteResponse(**result)
+        
+        # Silent response - just ok based on success
+        return {"ok": result["success"]}
     
     except Exception as e:
         logger.error(f"💥 Batch delete error: {e}", exc_info=True)

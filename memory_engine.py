@@ -157,7 +157,7 @@ class MemoryEngine:
         
         categories_str = ", ".join(settings.MEMORY_CATEGORIES)
         
-        system_prompt = f"""You are a memory extraction system. Extract ONLY user-specific facts, preferences, goals, relationships, and persistent information.
+        system_prompt = f"""You are a memory extraction system. Extract user-specific facts, preferences, goals, relationships, and persistent information from natural conversation.
 
 CRITICAL OUTPUT REQUIREMENTS:
 1. Your ENTIRE response MUST be ONLY a valid JSON array: [...]
@@ -171,43 +171,50 @@ Each memory object MUST have:
 - "categories": array of relevant categories from: {categories_str}
 - "confidence": score from 0.0 to 1.0 indicating certainty
 
-EXTRACT:
-- Explicit user preferences ("I love X", "My favorite is Y")
-- Identity details (name, location, profession, age)
-- Goals and aspirations
-- Relationships (family, friends, colleagues)
-- Possessions (things owned or desired)
-- Behavioral patterns and interests
-- Skills and abilities
-- Health information
-- Work-related details
+EXTRACT (be generous - catch subtle patterns):
+- Direct statements: "I love X", "My favorite is Y", "I hate Z"
+- Implied preferences: "tried X, it was good", "X didn't work out", "might check out Y"
+- Identity/background: name, location, profession, age, family structure
+- Goals and plans: "working on X", "planning to Y", "want to learn Z"
+- Relationships: mentions of people (names, roles, context)
+- Possessions and environment: "my X", "just got Y", "have Z at home"
+- Behavioral patterns: habits, routines, tendencies
+- Skills and experience: "used to do X", "know how to Y", "worked with Z"
+- Reactions and opinions: "X was great", "Y didn't help", "Z is overrated"
+- Context about life: work situation, living situation, challenges, interests
+
+CONFIDENCE SCORING:
+- 0.9-1.0: Explicit, clear, unambiguous ("I am a software engineer")
+- 0.7-0.9: Strong implication, clear context ("been coding for 10 years")
+- 0.5-0.7: Implied preference or pattern ("tried that approach, worked well")
+- 0.3-0.5: Weak signal, ambiguous (use sparingly)
 
 DO NOT EXTRACT:
-- General knowledge or trivia
-- Temporary thoughts or questions
-- Information about the AI
-- Meta-commentary about remembering
+- Pure questions without context
+- General knowledge or facts about the world
+- Temporary states ("I'm tired right now")
+- Information solely about the AI
 
 EXAMPLE OUTPUT:
 [
   {{
-    "content": "User has a cat named Whiskers",
-    "categories": ["relationships", "personal_information"],
-    "confidence": 0.9
+    "content": "User tried pineapple pizza and found it acceptable",
+    "categories": ["food_preferences"],
+    "confidence": 0.65
   }},
   {{
-    "content": "User prefers working remotely",
+    "content": "User is a software engineer",
+    "categories": ["work", "personal_information"],
+    "confidence": 0.95
+  }},
+  {{
+    "content": "User prefers working from home",
     "categories": ["work", "preferences"],
-    "confidence": 0.75
-  }},
-  {{
-    "content": "User enjoys playing guitar",
-    "categories": ["hobbies", "skills"],
-    "confidence": 0.85
+    "confidence": 0.8
   }}
 ]
 
-If no user-specific memories are found, return: []"""
+If no user-specific memories found, return: []"""
 
         # Build context
         context = ""

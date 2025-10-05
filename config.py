@@ -26,8 +26,8 @@ class Settings(BaseSettings):
     # Memory Management Settings
     MAX_MEMORIES: int = 1000
     DEDUP_THRESHOLD: float = 0.95
-    MIN_CONFIDENCE: float = 0.6
-    RELEVANCE_THRESHOLD: float = 0.65
+    MIN_CONFIDENCE: float = 0.5
+    RELEVANCE_THRESHOLD: float = 0.55
     
     # Memory Categories (Mem0-style)
     MEMORY_CATEGORIES: List[str] = [
@@ -91,9 +91,9 @@ class Settings(BaseSettings):
         if not 0.0 <= self.DEDUP_THRESHOLD <= 1.0:
             self.DEDUP_THRESHOLD = 0.95
         if not 0.0 <= self.MIN_CONFIDENCE <= 1.0:
-            self.MIN_CONFIDENCE = 0.6
+            self.MIN_CONFIDENCE = 0.5
         if not 0.0 <= self.RELEVANCE_THRESHOLD <= 1.0:
-            self.RELEVANCE_THRESHOLD = 0.65
+            self.RELEVANCE_THRESHOLD = 0.55
         
         # Validate MAX_MEMORIES
         if self.MAX_MEMORIES < 1:

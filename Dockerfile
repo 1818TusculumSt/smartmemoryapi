@@ -13,7 +13,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Pre-download local embedding model (if using local provider)
-RUN python -c "try:\n    from sentence_transformers import SentenceTransformer;\n    SentenceTransformer('all-MiniLM-L6-v2')\nexcept: pass"
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" || true
 
 # Copy application code
 COPY . .
