@@ -51,7 +51,7 @@ LLM_MODEL=gpt-4o-mini
 
 # Embedding Provider (pinecone recommended)
 EMBEDDING_PROVIDER=pinecone
-EMBEDDING_MODEL=multilingual-e5-small
+EMBEDDING_MODEL=llama-text-embed-v2
 
 # Memory Settings (optional - these are defaults)
 MAX_MEMORIES=1000
@@ -195,16 +195,14 @@ OpenAPI spec: `http://localhost:8099/openapi.json`
 **Pinecone Inference (Recommended)**
 ```env
 EMBEDDING_PROVIDER=pinecone
-EMBEDDING_MODEL=multilingual-e5-small
+EMBEDDING_MODEL=llama-text-embed-v2
 ```
 
 Available Pinecone models:
-- `multilingual-e5-small` (384 dimensions) - Recommended for serverless, faster and cheaper
-- `multilingual-e5-large` (1024 dimensions) - Higher quality, larger vectors
+- `llama-text-embed-v2` - **Flexible dimensions**: 384, 512, 768, 1024, or 2048 (configured automatically to match your index)
+- `multilingual-e5-large` - Fixed 1024 dimensions
 
-**Important:** Ensure your Pinecone index dimension matches the model:
-- 384-dimensional index → use `multilingual-e5-small`
-- 1024-dimensional index → use `multilingual-e5-large`
+**Note:** `llama-text-embed-v2` automatically uses 384 dimensions to match most serverless indexes. Supports long documents (up to 2048 tokens) and multilingual text.
 
 **Local (sentence-transformers)**
 ```env
@@ -329,10 +327,10 @@ Common issues:
 
 ### Embedding Errors
 
-- **Pinecone**: Verify API key and model name. Ensure model dimension matches index dimension (384 for multilingual-e5-small, 1024 for multilingual-e5-large)
+- **Pinecone**: Verify API key and model name. `llama-text-embed-v2` auto-configures to 384 dims by default
 - **Local**: Ensure sufficient disk space for model download
 - **API**: Verify embedding endpoint and key
-- **Dimension Mismatch**: If you get errors about vector dimensions, check that your EMBEDDING_MODEL dimension matches your Pinecone index dimension
+- **Model Not Found**: If you get "Model not found" errors, verify the model name exactly matches Pinecone's API (use `llama-text-embed-v2` or `multilingual-e5-large`)
 
 ## Architecture
 

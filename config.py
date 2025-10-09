@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     
     # Embedding Provider Configuration
     EMBEDDING_PROVIDER: str = "pinecone"  # "local", "api", "pinecone"
-    EMBEDDING_MODEL: str = "multilingual-e5-small"
+    EMBEDDING_MODEL: str = "llama-text-embed-v2"
     EMBEDDING_API_URL: Optional[str] = None
     EMBEDDING_API_KEY: Optional[str] = None
     

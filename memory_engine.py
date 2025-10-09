@@ -62,8 +62,8 @@ class MemoryEngine:
             "all-MiniLM-L6-v2": 384,
             "all-mpnet-base-v2": 768,
             "all-MiniLM-L12-v2": 384,
-            # Pinecone models
-            "multilingual-e5-small": 384,
+            # Pinecone models (llama-text-embed-v2 supports 384, 512, 768, 1024, 2048)
+            "llama-text-embed-v2": 384,  # Using 384 to match index
             "multilingual-e5-large": 1024,
         }
 

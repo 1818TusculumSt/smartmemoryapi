@@ -114,9 +114,23 @@ class EmbeddingProvider:
             "Content-Type": "application/json",
             "X-Pinecone-API-Version": "2025-04"
         }
+
+        # Determine dimension based on model
+        dimension = None
+        if settings.EMBEDDING_MODEL == "llama-text-embed-v2":
+            # Get dimension from memory engine's configured dimension
+            from memory_engine import MemoryEngine
+            # llama-text-embed-v2 supports multiple dimensions via parameter
+            dimension = 384  # Match your index
+
+        # Build parameters
+        params = {"input_type": "passage"}
+        if dimension is not None:
+            params["dimension"] = dimension
+
         data = {
             "model": settings.EMBEDDING_MODEL,
-            "parameters": {"input_type": "passage"},
+            "parameters": params,
             "inputs": [{"text": text}]
         }
         
