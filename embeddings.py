@@ -107,12 +107,12 @@ class EmbeddingProvider:
     async def _get_pinecone_embedding(self, text: str) -> Optional[np.ndarray]:
         """Get embedding from Pinecone inference API"""
         client = await self._get_client()
-        
-        url = "https://api.pinecone.io/inference/embed"
+
+        url = "https://api.pinecone.io/embed"
         headers = {
             "Api-Key": settings.PINECONE_API_KEY,
             "Content-Type": "application/json",
-            "X-Pinecone-API-Version": "2024-10"
+            "X-Pinecone-API-Version": "2025-04"
         }
         data = {
             "model": settings.EMBEDDING_MODEL,
