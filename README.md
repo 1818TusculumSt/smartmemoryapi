@@ -1,3 +1,5 @@
+<img width="1024" height="576" alt="Adobe Express - file" src="https://github.com/user-attachments/assets/0d591de8-f907-4313-8233-13c89b59a2f3" />
+
 # SmartMemory 2.0 API
 
 Next-generation memory system with Mem0 compatibility, enhanced extraction, and semantic search powered by Pinecone.
