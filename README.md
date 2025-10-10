@@ -2,12 +2,11 @@
 
 # SmartMemory 2.0 API
 
-Next-generation memory system with Mem0 compatibility, enhanced extraction, and semantic search powered by Pinecone.
+Next-generation memory system with enhanced extraction, and semantic search powered by Pinecone.
 
 ## Features
 
 - **Smart Memory Extraction**: Detects user facts, preferences, and context from natural conversation
-- **Mem0-Compatible API**: Drop-in replacement with user_id, agent_id, run_id support
 - **Semantic Search**: Vector-based similarity search with configurable thresholds
 - **Auto-Deduplication**: Prevents duplicate memories using embedding similarity
 - **Memory Categories**: Organized storage (personal_info, preferences, goals, relationships, etc.)
@@ -17,7 +16,7 @@ Next-generation memory system with Mem0 compatibility, enhanced extraction, and 
 
 ## Attribution
 
-This project's memory management system was derived from [gramanoid's Adaptive Memory filter for Open WebUI](https://github.com/gramanoid/owui-adaptive-memory). The original filter provided the foundation for LLM-based memory extraction, embedding similarity, and semantic deduplication. This implementation refactors those concepts into a standalone REST API with Mem0 compatibility and enhanced natural language processing.
+This project's memory management system was derived from [gramanoid's Adaptive Memory filter for Open WebUI](https://github.com/gramanoid/owui-adaptive-memory). The original filter provided the foundation for LLM-based memory extraction, embedding similarity, and semantic deduplication. This implementation refactors those concepts into a standalone REST API with enhanced natural language processing.
 
 ## Prerequisites
 
@@ -72,7 +71,7 @@ Verify: `curl http://localhost:8099/health`
 
 ## API Endpoints
 
-### Add Memory (Mem0-compatible)
+### Add Memory
 
 Extract and store memories from user message.
 
@@ -99,7 +98,7 @@ Content-Type: application/json
 }
 ```
 
-**Alternative format (Mem0 messages array):**
+**Alternative format:**
 ```json
 {
   "messages": [
@@ -358,7 +357,6 @@ Common issues:
 ## API Versioning
 
 **v2.0 (current)**
-- Mem0-compatible endpoints
 - Enhanced extraction prompts
 - Category-based organization
 - Session support (run_id)
