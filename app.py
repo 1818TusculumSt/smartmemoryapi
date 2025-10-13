@@ -105,6 +105,22 @@ class GetRelevantRequest(BaseModel):
     run_id: Optional[str] = None
     limit: int = Field(default=5, ge=1, le=20)
 
+class GetRecentRequest(BaseModel):
+    """Get recent memories request"""
+    limit: int = Field(default=10, ge=1, le=50)
+    user_id: Optional[str] = None
+
+class AutoRecallRequest(BaseModel):
+    """Auto-recall memories request"""
+    conversation_context: str = Field(..., description="Brief summary of current conversation context")
+    limit: int = Field(default=5, ge=1, le=20)
+    user_id: Optional[str] = None
+
+class ConsolidateRequest(BaseModel):
+    """Consolidate memories request"""
+    user_id: Optional[str] = None
+    tag: Optional[str] = None
+
 class BatchDeleteRequest(BaseModel):
     """Batch delete request"""
     memory_ids: List[str] = Field(..., description="List of memory IDs to delete")
@@ -132,7 +148,13 @@ async def root():
         "status": "operational",
         "features": [
             "Silent operations",
-            "Memory categories",
+            "Smart memory updates (auto-evolving memories)",
+            "Hybrid search (semantic + keyword boost)",
+            "Temporal awareness (date context)",
+            "Memory consolidation (merge fragments)",
+            "Proactive memory recall (auto-recall)",
+            "Recent memories retrieval",
+            "Memory categories/tags",
             "Session support (run_id)",
             "Advanced filtering",
             "Pagination",
@@ -147,6 +169,9 @@ async def root():
             "add": "/add",
             "search": "/search",
             "relevant": "/relevant",
+            "recent": "/recent",
+            "auto_recall": "/auto-recall",
+            "consolidate": "/consolidate",
             "delete": "/memory/{memory_id}",
             "batch_delete": "/batch/delete"
         }
@@ -229,12 +254,12 @@ async def search_memories(request: SearchRequest):
 async def get_relevant_memories(request: GetRelevantRequest):
     """
     Get memories relevant to current context.
-    
+
     Returns only memories above relevance threshold
     """
     if not memory_engine:
         raise HTTPException(status_code=503, detail="Engine not initialized")
-    
+
     try:
         memories = await memory_engine.get_relevant(
             current_message=request.current_message,
@@ -243,12 +268,81 @@ async def get_relevant_memories(request: GetRelevantRequest):
             run_id=request.run_id,
             limit=request.limit
         )
-        
+
         # Return just memories list, no count
         return {"memories": memories}
-    
+
     except Exception as e:
         logger.error(f"💥 Relevant error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/recent", tags=["Memory Retrieval"])
+async def get_recent_memories(request: GetRecentRequest):
+    """
+    Get most recent memories sorted by timestamp.
+
+    Useful for seeing latest stored context
+    """
+    if not memory_engine:
+        raise HTTPException(status_code=503, detail="Engine not initialized")
+
+    try:
+        memories = await memory_engine.get_recent(
+            limit=request.limit,
+            user_id=request.user_id
+        )
+
+        return {"memories": memories}
+
+    except Exception as e:
+        logger.error(f"💥 Recent error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/auto-recall", tags=["Memory Retrieval"])
+async def auto_recall_memories(request: AutoRecallRequest):
+    """
+    Automatically recall memories relevant to conversation context.
+
+    This is the proactive memory feature - call at the start of responses
+    to inject relevant context automatically
+    """
+    if not memory_engine:
+        raise HTTPException(status_code=503, detail="Engine not initialized")
+
+    try:
+        memories = await memory_engine.get_relevant(
+            current_message=request.conversation_context,
+            user_id=request.user_id,
+            limit=request.limit
+        )
+
+        return {"memories": memories}
+
+    except Exception as e:
+        logger.error(f"💥 Auto-recall error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/consolidate", tags=["Memory Operations"])
+async def consolidate_memories(request: ConsolidateRequest):
+    """
+    Consolidate fragmented memories into coherent summaries.
+
+    Groups similar memories and uses LLM to merge them.
+    Reduces redundancy and improves memory quality.
+    """
+    if not memory_engine:
+        raise HTTPException(status_code=503, detail="Engine not initialized")
+
+    try:
+        result = await memory_engine.consolidate_memories(
+            user_id=request.user_id,
+            tag=request.tag
+        )
+
+        return result
+
+    except Exception as e:
+        logger.error(f"💥 Consolidate error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/memory/{memory_id}", tags=["Memory Operations"])
