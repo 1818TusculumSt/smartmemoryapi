@@ -65,6 +65,14 @@ class MemoryEngine:
             # Pinecone models (llama-text-embed-v2 supports 384, 512, 768, 1024, 2048)
             "llama-text-embed-v2": 384,  # Using 384 to match index
             "multilingual-e5-large": 1024,
+            # API models
+            "voyage-3.5": 1024,
+            "voyage-3": 1024,
+            "voyage-large-2": 1536,
+            "voyage-code-2": 1536,
+            "text-embedding-3-small": 1536,
+            "text-embedding-3-large": 3072,
+            "text-embedding-ada-002": 1536,
         }
 
         if settings.EMBEDDING_PROVIDER == "local":
@@ -72,7 +80,8 @@ class MemoryEngine:
         elif settings.EMBEDDING_PROVIDER == "pinecone":
             self.embedding_dim = model_dims.get(settings.EMBEDDING_MODEL, 384)
         else:
-            self.embedding_dim = 1536  # OpenAI default
+            # API provider - look up model or default to 1536
+            self.embedding_dim = model_dims.get(settings.EMBEDDING_MODEL, 1536)
 
         logger.info(f"📏 Embedding dimension: {self.embedding_dim}")
     
