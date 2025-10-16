@@ -56,54 +56,54 @@ app.add_middleware(
 
 # REQUEST MODELS
 class AddMemoryRequest(BaseModel):
-    """Add memory request (Mem0-compatible)"""
+    """Add memory request - saves user information from conversation"""
     messages: Optional[List[Dict[str, str]]] = Field(
         default=None,
-        description="Message history for context"
+        description="Message history array with role/content pairs (Mem0 format). Example: [{'role': 'user', 'content': 'I love pizza'}]"
     )
     user_message: Optional[str] = Field(
         default=None,
-        description="Direct user message (alternative to messages)"
+        description="Direct user message to extract memories from. Use this for single messages. Example: 'I love pizza'"
     )
     user_id: Optional[str] = Field(
         default=None,
-        description="User identifier"
+        description="Unique identifier for the user. Use this to isolate memories per user in multi-user systems."
     )
     agent_id: Optional[str] = Field(
         default=None,
-        description="Agent identifier"
+        description="Agent/assistant identifier. Use to track which agent interacted with user."
     )
     run_id: Optional[str] = Field(
         default=None,
-        description="Session/run identifier"
+        description="Session/conversation identifier. Use to group memories by conversation session."
     )
     metadata: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="Additional metadata"
+        description="Additional custom metadata to attach to extracted memories."
     )
     recent_history: Optional[List[str]] = Field(
         default=None,
-        description="Recent conversation context"
+        description="Recent conversation messages for context. Helps improve extraction quality."
     )
 
 class SearchRequest(BaseModel):
-    """Search memories request"""
-    query: str = Field(..., description="Search query")
-    user_id: Optional[str] = None
-    agent_id: Optional[str] = None
-    run_id: Optional[str] = None
-    categories: Optional[List[str]] = None
-    limit: int = Field(default=5, ge=1, le=100)
-    page: int = Field(default=1, ge=1)
-    page_size: Optional[int] = Field(default=None, ge=1, le=100)
+    """Search memories with advanced filtering"""
+    query: str = Field(..., description="Search query text. Example: 'food preferences' or 'programming skills'")
+    user_id: Optional[str] = Field(default=None, description="Filter memories for specific user")
+    agent_id: Optional[str] = Field(default=None, description="Filter memories by agent")
+    run_id: Optional[str] = Field(default=None, description="Filter memories by conversation session")
+    categories: Optional[List[str]] = Field(default=None, description="Filter by categories. Example: ['food_preferences', 'work']")
+    limit: int = Field(default=5, ge=1, le=100, description="Maximum number of results to return (1-100)")
+    page: int = Field(default=1, ge=1, description="Page number for pagination")
+    page_size: Optional[int] = Field(default=None, ge=1, le=100, description="Results per page")
 
 class GetRelevantRequest(BaseModel):
-    """Get relevant memories request"""
-    current_message: str = Field(..., description="Current message")
-    user_id: Optional[str] = None
-    agent_id: Optional[str] = None
-    run_id: Optional[str] = None
-    limit: int = Field(default=5, ge=1, le=20)
+    """Get context-relevant memories for personalized responses"""
+    current_message: str = Field(..., description="Current user message or conversation context to find relevant memories for")
+    user_id: Optional[str] = Field(default=None, description="User identifier to retrieve their specific memories")
+    agent_id: Optional[str] = Field(default=None, description="Filter by agent identifier")
+    run_id: Optional[str] = Field(default=None, description="Filter by conversation session")
+    limit: int = Field(default=5, ge=1, le=20, description="Maximum relevant memories to return (1-20)")
 
 class GetRecentRequest(BaseModel):
     """Get recent memories request"""
@@ -177,12 +177,43 @@ async def root():
         }
     }
 
-@app.post("/add", tags=["Memory Operations"])
+@app.post("/add", tags=["Memory Operations"], summary="Save user memories from conversation")
 async def add_memory(request: AddMemoryRequest):
     """
-    Add memory with silent response (Mem0-compatible).
-    
-    Returns only {"ok": true} - nothing else
+    🧠 **CALL THIS AUTOMATICALLY** when users share personal information, preferences, or facts.
+
+    **When to call this tool:**
+    - User shares preferences: "I love pizza", "I prefer dark mode", "I hate mornings"
+    - User shares personal info: "My name is John", "I live in Seattle", "I work at Google"
+    - User shares goals: "I want to learn Python", "Planning to travel to Japan"
+    - User shares relationships: "My wife Sarah", "My dog Max", "My friend Alice"
+    - User shares opinions: "That movie was great", "This approach didn't work"
+    - User shares context about their life: work situation, hobbies, skills, habits
+
+    **What gets extracted and saved:**
+    - Direct statements: "I love X" → saves as preference
+    - Implied preferences: "tried X, it was good" → saves as positive experience
+    - Identity facts: name, location, profession, family
+    - Behavioral patterns: routines, tendencies, work style
+
+    **Examples that should trigger this tool:**
+    - ✅ "I love spicy food"
+    - ✅ "My favorite color is blue"
+    - ✅ "I'm a software engineer"
+    - ✅ "I prefer working from home"
+    - ✅ "I tried that restaurant, it was amazing"
+    - ❌ "What's the weather?" (just a question, no personal info)
+    - ❌ "Hello" (greeting, no context to save)
+
+    **This tool:**
+    - Extracts memories intelligently using LLM analysis
+    - Deduplicates automatically (won't create duplicates)
+    - Updates existing memories when information changes
+    - Filters by confidence (only saves high-quality memories)
+    - Returns silent confirmation: {"ok": true}
+
+    **Call this liberally** - the system is smart about filtering and deduplication.
+    Better to call it and save nothing than miss important user context.
     """
     if not memory_engine:
         raise HTTPException(status_code=503, detail="Engine not initialized")
@@ -221,12 +252,34 @@ async def add_memory(request: AddMemoryRequest):
         logger.error(f"💥 Add memory error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/search", tags=["Memory Retrieval"])
+@app.post("/search", tags=["Memory Retrieval"], summary="Search memories with filters")
 async def search_memories(request: SearchRequest):
     """
-    Search memories with advanced filtering and pagination.
-    
-    Returns only memories list, no metadata
+    🔎 Advanced memory search with filtering, categories, and pagination.
+
+    **When to call this tool:**
+    - User explicitly asks to search their memories: "Search my memories for..."
+    - User asks about specific topics: "What do you know about my work?"
+    - User wants to filter by category: "Show my food preferences"
+    - User asks "What do you remember about X?"
+    - Need to find specific memories with more control than /relevant
+
+    **Features:**
+    - Hybrid search: semantic similarity + keyword matching
+    - Filter by user_id, agent_id, run_id, categories
+    - Pagination support for large result sets
+    - Returns memories sorted by relevance
+
+    **Difference from /relevant:**
+    - /relevant: Auto-filtered by threshold, best for proactive context injection
+    - /search: Returns all matches, best for explicit user queries
+
+    **Examples when to call:**
+    - ✅ User: "What do you know about my food preferences?"
+    - ✅ User: "Search for memories about Python"
+    - ✅ User: "Show me what you remember about my job"
+    - ✅ User: "List all my goals"
+    - ❌ Just personalizing a response → Use /relevant instead
     """
     if not memory_engine:
         raise HTTPException(status_code=503, detail="Engine not initialized")
@@ -250,12 +303,36 @@ async def search_memories(request: SearchRequest):
         logger.error(f"💥 Search error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/relevant", tags=["Memory Retrieval"])
+@app.post("/relevant", tags=["Memory Retrieval"], summary="Retrieve context-relevant memories")
 async def get_relevant_memories(request: GetRelevantRequest):
     """
-    Get memories relevant to current context.
+    🔍 **CALL THIS BEFORE RESPONDING** to inject relevant user context into your response.
 
-    Returns only memories above relevance threshold
+    **When to call this tool:**
+    - At the START of complex conversations to load user context
+    - When user asks about their preferences: "What do I like?"
+    - When you need personalized recommendations
+    - When continuing previous conversations
+    - When user references past interactions
+    - Before giving advice (to personalize based on their background)
+
+    **What this returns:**
+    - Memories semantically similar to the current message
+    - Only memories above relevance threshold (high-quality matches)
+    - Hybrid search (semantic + keyword matching)
+    - Sorted by relevance score
+
+    **Examples when to call:**
+    - ✅ User: "What should I eat for dinner?" → Call to check food preferences
+    - ✅ User: "Recommend a programming language" → Call to check skill level
+    - ✅ User: "Tell me about myself" → Call to retrieve user profile
+    - ✅ Starting a new conversation → Call to load recent context
+    - ❌ User: "What's 2+2?" → No need, factual question
+    - ❌ User: "Goodbye" → No need, ending conversation
+
+    **Best practice:**
+    Call this proactively at the start of responses to provide personalized,
+    context-aware answers based on what you know about the user.
     """
     if not memory_engine:
         raise HTTPException(status_code=503, detail="Engine not initialized")
