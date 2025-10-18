@@ -503,7 +503,8 @@ Return ONLY the JSON array. No other text."""
 
             for match in results.matches:
                 # Filter by categories if specified
-                mem_categories = match.metadata.get("categories", "").split(",") if match.metadata.get("categories") else []
+                cats_raw = match.metadata.get("categories", "")
+                mem_categories = cats_raw if isinstance(cats_raw, list) else (cats_raw.split(",") if cats_raw else [])
                 if categories:
                     if not any(cat in mem_categories for cat in categories):
                         continue
@@ -706,7 +707,8 @@ Return ONLY the JSON array. No other text."""
 
             recent = []
             for mem in all_mems[:limit]:
-                categories = mem["metadata"].get("categories", "").split(",") if mem["metadata"].get("categories") else []
+                cats_raw = mem["metadata"].get("categories", "")
+                categories = cats_raw if isinstance(cats_raw, list) else (cats_raw.split(",") if cats_raw else [])
                 recent.append({
                     "id": mem["id"],
                     "content": mem["metadata"].get("content", ""),
@@ -739,7 +741,7 @@ Return ONLY the JSON array. No other text."""
         if tag:
             all_mems = [
                 m for m in all_mems
-                if tag in m["metadata"].get("categories", "").split(",")
+                if tag in (m["metadata"].get("categories", []) if isinstance(m["metadata"].get("categories"), list) else m["metadata"].get("categories", "").split(","))
             ]
 
         if len(all_mems) < 3:
@@ -842,7 +844,7 @@ Return only the consolidated memory:"""
                 "content": consolidated_text.strip(),
                 "categories": list(set(
                     cat for mem in group
-                    for cat in mem["metadata"].get("categories", "").split(",")
+                    for cat in (mem["metadata"].get("categories", []) if isinstance(mem["metadata"].get("categories"), list) else mem["metadata"].get("categories", "").split(","))
                     if cat
                 )),
                 "confidence": max(

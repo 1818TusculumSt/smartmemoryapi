@@ -210,7 +210,7 @@ async def add_memory(request: AddMemoryRequest):
     - Deduplicates automatically (won't create duplicates)
     - Updates existing memories when information changes
     - Filters by confidence (only saves high-quality memories)
-    - Returns silent confirmation: {"ok": true}
+    - Returns silent confirmation: {"ok": true, "stored": N}
 
     **Call this liberally** - the system is smart about filtering and deduplication.
     Better to call it and save nothing than miss important user context.
@@ -236,7 +236,7 @@ async def add_memory(request: AddMemoryRequest):
         raise HTTPException(status_code=400, detail="No message content provided")
     
     try:
-        await memory_engine.extract_and_store(
+        result = await memory_engine.extract_and_store(
             user_message=user_message,
             user_id=request.user_id,
             agent_id=request.agent_id,
@@ -244,9 +244,9 @@ async def add_memory(request: AddMemoryRequest):
             metadata=request.metadata,
             recent_history=request.recent_history or []
         )
-        
-        # Silent response - just ok, nothing else
-        return {"ok": True}
+
+        # Silent response with count (LLMs typically ignore metadata-like fields)
+        return {"ok": True, "stored": result.get("count", 0)}
     
     except Exception as e:
         logger.error(f"💥 Add memory error: {e}", exc_info=True)
