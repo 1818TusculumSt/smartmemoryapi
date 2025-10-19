@@ -29,17 +29,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy and install pre-built wheels from builder stage
 COPY --from=builder /wheels /wheels
-RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels
-
-# Pre-download embedding model for local provider (optional but recommended)
-# This happens at build time so the image has the model ready
-# If using API provider (Voyage, OpenAI, Pinecone), this downloads but won't be used
-RUN python -c "from sentence_transformers import SentenceTransformer; \
+RUN pip install --no-cache-dir /wheels/* && \
+    rm -rf /wheels /tmp/* /root/.cache/pip && \
+    # Pre-download embedding model for local provider (optional but recommended)
+    # This happens at build time so the image has the model ready
+    # If using API provider (Voyage, OpenAI, Pinecone), this downloads but won't be used
+    python -c "from sentence_transformers import SentenceTransformer; \
     model = SentenceTransformer('all-MiniLM-L6-v2'); \
-    print(f'Model loaded: {model.get_sentence_embedding_dimension()}d')" || echo "Model download skipped"
-
-# Clean up any pip/model download caches to reduce image size
-RUN rm -rf /root/.cache/pip /root/.cache/huggingface
+    print(f'Model loaded: {model.get_sentence_embedding_dimension()}d')" || echo "Model download skipped" && \
+    # Clean up all caches to reduce image size
+    rm -rf /root/.cache /tmp/* /var/tmp/*
 
 # Copy application code
 COPY app.py memory_engine.py embeddings.py llm_client.py config.py ./
