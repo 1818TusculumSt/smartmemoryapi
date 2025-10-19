@@ -11,9 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and build wheels
+# Copy requirements and build wheels WITH dependencies
 COPY requirements.txt .
-RUN pip wheel --no-cache-dir --no-deps --wheel-dir /wheels -r requirements.txt
+RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
 
 # ============================================
 # Stage 2: Runtime - Minimal final image
