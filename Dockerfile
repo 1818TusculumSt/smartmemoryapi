@@ -28,8 +28,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install pre-built wheels from builder stage
+# Install with --no-deps since all dependencies are already in /wheels
 COPY --from=builder /wheels /wheels
-RUN pip install --no-cache-dir /wheels/* && \
+RUN pip install --no-cache-dir --no-deps /wheels/* && \
     rm -rf /wheels /tmp/* /root/.cache/pip && \
     # Pre-download embedding model for local provider (optional but recommended)
     # This happens at build time so the image has the model ready
