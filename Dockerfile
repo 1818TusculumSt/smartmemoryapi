@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and build wheels WITH dependencies
+# Copy requirements and build wheels (includes all dependencies)
 COPY requirements.txt .
 RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
 
@@ -22,23 +22,20 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install runtime dependencies only (ca-certificates for HTTPS)
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install pre-built wheels from builder stage
-# Install with --no-deps since all dependencies are already in /wheels
+# Install from pre-built wheels and cleanup in one layer
 COPY --from=builder /wheels /wheels
-RUN pip install --no-cache-dir --no-deps /wheels/* && \
-    rm -rf /wheels /tmp/* /root/.cache/pip && \
-    # Pre-download embedding model for local provider (optional but recommended)
-    # This happens at build time so the image has the model ready
-    # If using API provider (Voyage, OpenAI, Pinecone), this downloads but won't be used
+RUN pip install --no-cache-dir /wheels/* && \
+    rm -rf /wheels && \
+    # Pre-download embedding model for local provider
     python -c "from sentence_transformers import SentenceTransformer; \
     model = SentenceTransformer('all-MiniLM-L6-v2'); \
     print(f'Model loaded: {model.get_sentence_embedding_dimension()}d')" || echo "Model download skipped" && \
-    # Clean up all caches to reduce image size
+    # Clean up all caches
     rm -rf /root/.cache /tmp/* /var/tmp/*
 
 # Copy application code

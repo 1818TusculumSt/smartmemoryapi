@@ -453,14 +453,32 @@ uvx mcpo --port 8100 --api-key "your-secret" -- http://localhost:8099
 
 ```
 smartmemoryapi/
-├── app.py              # FastAPI server with enhanced OpenAPI descriptions
-├── memory_engine.py    # Core engine with smart updates, consolidation, hybrid search
-├── embeddings.py       # 3-provider support (local/API/Pinecone) with HTTP/2
-├── llm_client.py       # Async LLM client with connection pooling
-├── config.py           # Comprehensive configuration management
-├── requirements.txt    # Minimal, optimized dependencies
-├── Dockerfile          # Multi-stage build with model pre-loading
-└── docker-compose.yml  # Production-ready with health checks
+├── app.py                 # FastAPI server with enhanced OpenAPI descriptions
+├── memory_engine.py       # Core engine with smart updates, consolidation, hybrid search
+├── embeddings.py          # 3-provider support (local/API/Pinecone) with HTTP/2
+├── llm_client.py          # Async LLM client with connection pooling
+├── config.py              # Comprehensive configuration management
+├── requirements.txt       # CPU-only (slim ~600MB)
+├── requirements-gpu.txt   # GPU/CUDA support (~12GB)
+├── Dockerfile             # Multi-stage build with model pre-loading
+└── docker-compose.yml     # Production-ready with health checks
+```
+
+### Docker Build Options
+
+**Default (CPU-only, recommended):**
+```bash
+docker-compose up -d
+# Image size: ~600MB
+```
+
+**GPU Build (for CUDA acceleration):**
+```bash
+# Edit docker-compose.yml to use requirements-gpu.txt
+# Then build:
+docker-compose build --build-arg REQUIREMENTS_FILE=requirements-gpu.txt
+# Image size: ~12GB (includes CUDA libraries)
+# Requires: NVIDIA GPU with CUDA support
 ```
 
 ### Key Design Patterns

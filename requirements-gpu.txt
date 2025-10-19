@@ -1,5 +1,6 @@
-# SmartMemory API - Default Requirements (CPU-only, slim build ~600MB)
-# For GPU support, use requirements-gpu.txt instead
+# SmartMemory API - GPU Requirements (Full CUDA build ~12GB)
+# Use this for GPU-accelerated local embeddings
+# Requires: NVIDIA GPU with CUDA support
 
 # FastAPI and ASGI server
 fastapi==0.115.4
@@ -12,9 +13,7 @@ pydantic-settings==2.6.1
 # Vector database
 pinecone-client==5.0.1
 
-# Embeddings - CPU-only PyTorch (avoids 3.8GB CUDA bloat)
---extra-index-url https://download.pytorch.org/whl/cpu
-torch>=2.0.0
+# Embeddings - Full PyTorch with CUDA support (includes 3.8GB CUDA libraries)
 sentence-transformers==3.3.1
 numpy==2.0.2
 
