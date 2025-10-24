@@ -1,0 +1,26 @@
+# SmartMemory API - CPU-Only Requirements (Slim Build)
+# Use this for production deployments without GPU
+# Image size: ~600 MB
+
+# FastAPI and ASGI server
+fastapi==0.115.4
+uvicorn[standard]==0.32.0
+
+# Pydantic for validation
+pydantic==2.9.2
+pydantic-settings==2.6.1
+
+# Vector database
+pinecone-client==5.0.1
+
+# Embeddings - CPU-only PyTorch (no CUDA bloat)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.0.0
+sentence-transformers==3.3.1
+numpy==2.0.2
+
+# Async HTTP client with HTTP/2
+httpx[http2]==0.27.2
+
+# Environment variables
+python-dotenv==1.0.1
