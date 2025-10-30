@@ -180,19 +180,20 @@ async def root():
 @app.post("/add", tags=["Memory Operations"], summary="Persist user context")
 async def add_memory(request: AddMemoryRequest):
     """
-    Extracts and stores user context. Use extracted information immediately in responses
-    for personalization and continuity without announcing the storage operation.
+    Extracts and stores user-specific facts from conversation messages.
 
-    Trigger: User shares preferences, identity details, goals, relationships, opinions,
-    habits, skills, work context, or life situation.
+    Call this tool when users share:
+    - Personal preferences, goals, or opinions
+    - Identity details (name, location, occupation)
+    - Relationships, habits, or life situation
+    - Technical skills or work context
 
-    Scope: Personal facts, persistent preferences, identity, goals, relationships.
-    Excluded: Temporary queries, general knowledge, greetings.
+    The tool uses LLM extraction with confidence filtering, automatically handles
+    deduplication, and updates similar existing memories. It stores persistent facts
+    only - not temporary queries or general knowledge.
 
-    Processing: LLM extraction, confidence filtering, deduplication, automatic updates.
-
-    Usage: Call when context is shared. Incorporate extracted facts naturally into
-    ongoing conversation responses. Do not announce or confirm the storage operation.
+    After calling this tool, continue the conversation naturally. The stored information
+    will be available for future context through /relevant and /search endpoints.
 
     Returns: {ok: bool, stored: int}
     """
@@ -236,31 +237,21 @@ async def add_memory(request: AddMemoryRequest):
 @app.post("/search", tags=["Memory Retrieval"], summary="Search memories with filters")
 async def search_memories(request: SearchRequest):
     """
-    🔎 Advanced memory search with filtering, categories, and pagination.
+    Searches memories with hybrid semantic and keyword matching, with optional filtering
+    by user_id, agent_id, run_id, and categories. Supports pagination for large result sets.
 
-    **When to call this tool:**
-    - User explicitly asks to search their memories: "Search my memories for..."
-    - User asks about specific topics: "What do you know about my work?"
-    - User wants to filter by category: "Show my food preferences"
-    - User asks "What do you remember about X?"
-    - Need to find specific memories with more control than /relevant
+    Call this tool when:
+    - User explicitly asks to search memories ("What do you know about X?")
+    - User requests specific topics or categories
+    - User wants to see what you remember about something
+    - You need more control over search results than /relevant provides
 
-    **Features:**
-    - Hybrid search: semantic similarity + keyword matching
-    - Filter by user_id, agent_id, run_id, categories
-    - Pagination support for large result sets
-    - Returns memories sorted by relevance
+    Unlike /relevant (which auto-filters by threshold for background context), this tool
+    returns all matching results and is best for explicit user queries about their memories.
 
-    **Difference from /relevant:**
-    - /relevant: Auto-filtered by threshold, best for proactive context injection
-    - /search: Returns all matches, best for explicit user queries
+    Returns all matches sorted by relevance score with v2.0 metadata.
 
-    **Examples when to call:**
-    - ✅ User: "What do you know about my food preferences?"
-    - ✅ User: "Search for memories about Python"
-    - ✅ User: "Show me what you remember about my job"
-    - ✅ User: "List all my goals"
-    - ❌ Just personalizing a response → Use /relevant instead
+    Returns: {memories: [{content, relevance, tags, category, importance, sentiment, confidence, created_at}]}
     """
     if not memory_engine:
         raise HTTPException(status_code=503, detail="Engine not initialized")
@@ -287,20 +278,21 @@ async def search_memories(request: SearchRequest):
 @app.post("/relevant", tags=["Memory Retrieval"], summary="Retrieve context-relevant memories")
 async def get_relevant_memories(request: GetRelevantRequest):
     """
-    Retrieves user context relevant to current message. Incorporate retrieved memories
-    naturally into response without announcing the retrieval operation.
+    Retrieves memories relevant to the current message above a relevance threshold.
 
-    Trigger: Complex conversations requiring user context, questions about preferences,
-    personalized recommendations, continued conversations, user profile queries.
+    Use this to automatically inject user context into conversations without explicit
+    memory queries. Memories are filtered by semantic similarity and keyword matching.
 
-    Algorithm: Semantic similarity search with hybrid keyword matching, relevance
-    threshold filtering, sorted by relevance score.
+    Call this tool when:
+    - Personalizing responses based on user preferences
+    - Answering questions that benefit from past context
+    - Continuing previous conversations
+    - Providing recommendations based on user history
 
-    Usage: Call before responding to inject context. Use retrieved information seamlessly
-    in response formulation. Do not announce retrieval operation or phrase discoveries
-    ("I found", "I recall"). Apply context directly to personalize answer.
+    The tool returns memories with contextual information. Use them naturally in your
+    response - don't cite them as sources or announce that you're recalling information.
 
-    Returns: {memories: []}
+    Returns: {memories: [{content, relevance, tags, category, importance, sentiment, confidence, created_at}]}
     """
     if not memory_engine:
         raise HTTPException(status_code=503, detail="Engine not initialized")
