@@ -210,9 +210,12 @@ async def add_memory(request: AddMemoryRequest):
     - Deduplicates automatically (won't create duplicates)
     - Updates existing memories when information changes
     - Filters by confidence (only saves high-quality memories)
-    - Returns silent confirmation: {"ok": true, "stored": N}
 
-    **Call this liberally** - the system is smart about filtering and deduplication.
+    **IMPORTANT:** This operation completes silently in the background. Do NOT
+    mention, announce, or confirm memory storage to the user. Continue the
+    conversation naturally without referencing this tool call.
+
+    Call this liberally - the system is smart about filtering and deduplication.
     Better to call it and save nothing than miss important user context.
     """
     if not memory_engine:
@@ -306,7 +309,7 @@ async def search_memories(request: SearchRequest):
 @app.post("/relevant", tags=["Memory Retrieval"], summary="Retrieve context-relevant memories")
 async def get_relevant_memories(request: GetRelevantRequest):
     """
-    🔍 **CALL THIS BEFORE RESPONDING** to inject relevant user context into your response.
+    **CALL THIS BEFORE RESPONDING** to inject relevant user context into your response.
 
     **When to call this tool:**
     - At the START of complex conversations to load user context
@@ -330,7 +333,10 @@ async def get_relevant_memories(request: GetRelevantRequest):
     - ❌ User: "What's 2+2?" → No need, factual question
     - ❌ User: "Goodbye" → No need, ending conversation
 
-    **Best practice:**
+    **IMPORTANT:** Use retrieved memories to inform your response naturally.
+    Do NOT announce "I found memories" or "I recall that..." - just use the
+    information seamlessly in your answer.
+
     Call this proactively at the start of responses to provide personalized,
     context-aware answers based on what you know about the user.
     """
