@@ -4,132 +4,139 @@
 
 Next-generation memory system with smart extraction, semantic search, and auto-recall powered by Pinecone.
 
-## Features
-
-- **Smart Memory Extraction** - Detects facts, preferences, and context from conversation
-- **Smart Updates** - Memories evolve (0.85-0.94 similarity) instead of duplicating
-- **Hybrid Search** - Semantic + keyword matching with 15% boost per match
-- **Auto-Recall** - Proactive retrieval based on conversation context
-- **Memory Consolidation** - Merges fragmented memories automatically
-- **Flexible Embeddings** - Local, OpenAI API, or Pinecone inference
-- **High Performance** - HTTP/2, connection pooling, async throughout
-
-**Built on:** [gramanoid's Adaptive Memory filter](https://github.com/gramanoid/owui-adaptive-memory)
-
-## Prerequisites
-
-- Docker & Docker Compose
-- Pinecone API key ([get one free](https://www.pinecone.io/))
-- OpenAI-compatible LLM (OpenAI, Ollama, LiteLLM, etc.)
-
 ## Quick Start
 
 ```bash
-# 1. Clone and configure
 git clone https://github.com/1818TusculumSt/smartmemoryapi.git
 cd smartmemoryapi
-cp .env.example .env  # Edit with your API keys
-
-# 2. Start service
+cp .env.example .env  # Edit with your keys
 docker-compose up -d
-
-# 3. Verify
-curl http://localhost:8099/health
 ```
 
-### Minimal `.env` Configuration
+### Required `.env`
 
 ```env
-# Required
 PINECONE_API_KEY=your-key
 PINECONE_INDEX_NAME=smartmemory-v2
 LLM_API_URL=https://api.openai.com/v1/chat/completions
 LLM_API_KEY=your-key
 LLM_MODEL=gpt-4o-mini
-
-# Recommended
 EMBEDDING_PROVIDER=pinecone
 EMBEDDING_MODEL=llama-text-embed-v2
 ```
 
-API runs at `http://localhost:8099` | Docs at `http://localhost:8099/docs`
+**API:** `http://localhost:8099` | **Docs:** `http://localhost:8099/docs`
+
+## What's New in v2.0
+
+- **Auto-categorization**: 10 types (achievement, frustration, idea, fact, event, conversation, relationship, technical, personal, misc)
+- **Importance scoring**: 1-10 scale, auto-assigned
+- **Sentiment detection**: positive, negative, neutral, mixed
+- **Tags**: Array-based organization
+- **Pinning & archiving**: Flag critical memories, soft-delete others
+- **Smart updates**: Memories evolve (0.85-0.94 similarity) instead of duplicating
+
+**Backward compatible** - all existing memories still work.
+
+## Features
+
+- Smart memory extraction from conversation
+- Hybrid search (semantic + keyword)
+- Auto-recall for proactive context
+- Memory consolidation
+- Flexible embeddings (local/API/Pinecone)
+- HTTP/2, connection pooling, async
 
 ## Open WebUI Integration
 
-### Via MCPO (Recommended)
-
+**Via MCPO (recommended):**
 ```bash
-# Install and run MCPO proxy
 uvx mcpo --port 8100 --api-key "your-secret" -- http://localhost:8099
 ```
+Settings → External Tools → Add `http://localhost:8100`
 
-In Open WebUI:
-1. **Settings → External Tools**
-2. Add server: `http://localhost:8100`
-3. API Key: `your-secret`
-4. Enable in chat - done!
+**Direct:** Workspace → Functions → Import `http://localhost:8099/openapi.json`
 
-### Direct Import
-
-1. **Workspace → Functions**
-2. **Import from URL**: `http://localhost:8099/openapi.json`
-
-## API Overview
+## API Endpoints
 
 | Endpoint | Purpose |
 |----------|---------|
-| `POST /add` | Extract and store memories from conversation |
-| `POST /search` | Semantic search with hybrid keyword matching |
-| `POST /relevant` | Get memories above relevance threshold |
-| `POST /recent` | Recent memories by timestamp |
-| `POST /auto-recall` | Proactive context-based retrieval |
-| `POST /consolidate` | Merge fragmented memories |
-| `DELETE /memory/{id}` | Delete specific memory |
-| `POST /batch/delete` | Delete multiple memories |
-| `GET /health` | Health check |
-| `GET /status` | System status |
+| `POST /add` | Extract and store memories |
+| `POST /search` | Semantic search with filters |
+| `POST /relevant` | Get memories above threshold |
+| `POST /recent` | Recent memories by time |
+| `POST /auto-recall` | Proactive retrieval |
+| `POST /consolidate` | Merge fragments |
+| `DELETE /memory/{id}` | Delete memory |
+| `POST /batch/delete` | Batch delete |
 
-**Full API docs:** `http://localhost:8099/docs`
+Full docs at `http://localhost:8099/docs`
 
-## Configuration Options
+## Configuration
+
+<details>
+<summary>Memory Thresholds</summary>
+
+```env
+MIN_CONFIDENCE=0.5         # Lower = more captured
+RELEVANCE_THRESHOLD=0.55   # Lower = more recalled
+DEDUP_THRESHOLD=0.95       # Duplicate detection
+```
+
+**Memory updates:**
+- ≥0.95 similarity: Skip (duplicate)
+- 0.85-0.94: Update existing
+- <0.85: Store new
+
+</details>
 
 <details>
 <summary>Embedding Providers</summary>
 
-**Pinecone (Recommended):**
+**Pinecone (recommended):**
 ```env
 EMBEDDING_PROVIDER=pinecone
 EMBEDDING_MODEL=llama-text-embed-v2
 ```
 
-**Local:** `EMBEDDING_PROVIDER=local` | **API:** `EMBEDDING_PROVIDER=api`
-
-[Full configuration guide →](docs/CONFIGURATION.md)
-</details>
-
-<details>
-<summary>Memory Tuning</summary>
-
+**Local:**
 ```env
-MIN_CONFIDENCE=0.5         # Lower = more memories captured
-RELEVANCE_THRESHOLD=0.55   # Lower = more memories recalled
-DEDUP_THRESHOLD=0.95       # Similarity for duplicates
+EMBEDDING_PROVIDER=local
+EMBEDDING_MODEL=all-MiniLM-L6-v2
 ```
+
+**API:**
+```env
+EMBEDDING_PROVIDER=api
+EMBEDDING_API_URL=https://api.openai.com/v1/embeddings
+EMBEDDING_API_KEY=your-key
+```
+
 </details>
+
+## Troubleshooting
+
+**Service won't start:** `docker-compose logs smartmemory-v2`
+
+**No memories extracted:** Lower `MIN_CONFIDENCE=0.4` in `.env`
+
+**Memories not recalled:** Lower `RELEVANCE_THRESHOLD=0.5`, ensure matching `user_id`
+
+**Embedding errors:** Check API keys, model names
+
+**Full troubleshooting:** See logs and status at `http://localhost:8099/status`
 
 ## Development
 
 ```bash
-# Local development
+# Local
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 uvicorn app:app --reload
 
-# View logs
-docker-compose logs -f smartmemory-v2
+# Docker rebuild
+docker-compose down && docker-compose build --no-cache && docker-compose up -d
 ```
-
-**GPU support:** Use `requirements-gpu.txt` for CUDA acceleration (~12GB image vs ~600MB CPU)
 
 ## Support
 

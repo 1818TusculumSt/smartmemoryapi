@@ -167,9 +167,7 @@ class MemoryEngine:
         from datetime import datetime
         current_date = datetime.now().strftime("%Y-%m-%d")
 
-        categories_str = ", ".join(settings.MEMORY_CATEGORIES)
-
-        system_prompt = f"""You are a memory extraction system. Extract user-specific facts, preferences, goals, relationships, and persistent information from natural conversation.
+        system_prompt = f"""You are a memory extraction system. Extract ONLY user-specific facts, preferences, goals, relationships, and persistent information from natural conversation.
 
 CURRENT DATE: {current_date}
 
@@ -184,53 +182,81 @@ CRITICAL OUTPUT REQUIREMENTS:
 
 Each memory object MUST have:
 - "content": the extracted user-specific fact (string)
-- "categories": array of relevant categories from: {categories_str}
+- "tags": array of relevant tags (e.g., ["homelab", "technical", "family"])
 - "confidence": score from 0.0 to 1.0 indicating certainty
+- "category": ONE category from the list below (REQUIRED)
+- "importance": integer from 1-10 indicating significance (REQUIRED)
+- "sentiment": ONE of: positive, negative, neutral, mixed (REQUIRED)
 
-EXTRACT (be generous - catch subtle patterns):
-- Direct statements: "I love X", "My favorite is Y", "I hate Z"
-- Implied preferences: "tried X, it was good", "X didn't work out", "might check out Y"
-- Identity/background: name, location, profession, age, family structure
-- Goals and plans: "working on X", "planning to Y", "want to learn Z"
-- Relationships: mentions of people (names, roles, context)
-- Possessions and environment: "my X", "just got Y", "have Z at home"
-- Behavioral patterns: habits, routines, tendencies
-- Skills and experience: "used to do X", "know how to Y", "worked with Z"
-- Reactions and opinions: "X was great", "Y didn't help", "Z is overrated"
-- Context about life: work situation, living situation, challenges, interests
+CATEGORIZATION (choose ONE):
+- "achievement": Completed tasks, successes, victories, solved problems
+- "frustration": Problems, failures, issues, roadblocks
+- "idea": Thoughts, plans, possibilities, future considerations
+- "fact": Factual information about user (name, location, possessions)
+- "event": Things that happened, meetings, activities
+- "conversation": Discussion topics, things mentioned
+- "relationship": Information about people, connections, family
+- "technical": Code, systems, infrastructure, tools, technology
+- "personal": Family, hobbies, interests, daily life
+- "misc": Everything else that doesn't fit above
 
-CONFIDENCE SCORING:
-- 0.9-1.0: Explicit, clear, unambiguous ("I am a software engineer")
-- 0.7-0.9: Strong implication, clear context ("been coding for 10 years")
-- 0.5-0.7: Implied preference or pattern ("tried that approach, worked well")
-- 0.3-0.5: Weak signal, ambiguous (use sparingly)
+IMPORTANCE SCORING (1-10):
+- 1-3: Low - Minor details, trivial facts, passing mentions
+- 4-6: Medium - Useful information, regular preferences, typical activities
+- 7-8: High - Important facts, strong preferences, key relationships, significant events
+- 9-10: Critical - Core identity, mission-critical information, deeply held values
+
+SENTIMENT ANALYSIS:
+- "positive": Achievements, good news, preferences, successes, joy
+- "negative": Frustrations, problems, dislikes, failures, anger
+- "neutral": Facts, observations, routine information
+- "mixed": Complex feelings, both good and bad aspects
+
+EXTRACT:
+- Explicit user preferences ("I love X", "My favorite is Y")
+- Identity details (name, location, profession, age)
+- Goals and aspirations
+- Relationships (family, friends, colleagues)
+- Possessions (things owned or desired)
+- Behavioral patterns and interests
+- Achievements and victories
+- Frustrations and problems
 
 DO NOT EXTRACT:
-- Pure questions without context
-- General knowledge or facts about the world
-- Temporary states ("I'm tired right now")
-- Information solely about the AI
+- General knowledge or trivia
+- Temporary thoughts or questions
+- Information about the AI
+- Meta-commentary about remembering
 
 EXAMPLE OUTPUT:
 [
   {{
-    "content": "User tried pineapple pizza and found it acceptable",
-    "categories": ["food_preferences"],
-    "confidence": 0.65
-  }},
-  {{
-    "content": "User is a software engineer",
-    "categories": ["work", "personal_information"],
+    "content": "User fixed BADBUNNY PSU issue after 2 hours of troubleshooting",
+    "tags": ["homelab", "technical", "hardware", "BADBUNNY"],
+    "category": "achievement",
+    "importance": 8,
+    "sentiment": "positive",
     "confidence": 0.95
   }},
   {{
-    "content": "User prefers working from home",
-    "categories": ["work", "preferences"],
-    "confidence": 0.8
+    "content": "User has a cat named Whiskers",
+    "tags": ["relationship", "possession", "pets"],
+    "category": "fact",
+    "importance": 6,
+    "sentiment": "neutral",
+    "confidence": 0.9
+  }},
+  {{
+    "content": "User frustrated with network connectivity issues",
+    "tags": ["technical", "network", "problem"],
+    "category": "frustration",
+    "importance": 7,
+    "sentiment": "negative",
+    "confidence": 0.85
   }}
 ]
 
-If no user-specific memories found, return: []"""
+If no user-specific memories are found, return: []"""
 
         # Build context
         context = ""
@@ -276,17 +302,45 @@ Return ONLY the JSON array. No other text."""
             for mem in memories:
                 if not isinstance(mem, dict) or "content" not in mem:
                     continue
-                
-                # Ensure categories
+
+                # V2.0: Ensure tags (array)
+                if "tags" not in mem:
+                    mem["tags"] = []
+                elif not isinstance(mem["tags"], list):
+                    mem["tags"] = [str(mem["tags"])]
+
+                # V2.0: Ensure category (single value with default)
+                if "category" not in mem or mem["category"] not in [
+                    "achievement", "frustration", "idea", "fact", "event",
+                    "conversation", "relationship", "technical", "personal", "misc"
+                ]:
+                    mem["category"] = "misc"
+
+                # V2.0: Ensure importance (1-10 with default 5)
+                if "importance" not in mem:
+                    mem["importance"] = 5
+                else:
+                    try:
+                        mem["importance"] = int(mem["importance"])
+                        if not 1 <= mem["importance"] <= 10:
+                            mem["importance"] = 5
+                    except (ValueError, TypeError):
+                        mem["importance"] = 5
+
+                # V2.0: Ensure sentiment (with default neutral)
+                if "sentiment" not in mem or mem["sentiment"] not in ["positive", "negative", "neutral", "mixed"]:
+                    mem["sentiment"] = "neutral"
+
+                # Legacy: Ensure categories (keep for backward compatibility)
                 if "categories" not in mem:
-                    mem["categories"] = ["behavior"]
+                    mem["categories"] = mem["tags"] if mem.get("tags") else []
                 elif not isinstance(mem["categories"], list):
                     mem["categories"] = [str(mem["categories"])]
-                
+
                 # Ensure confidence
                 if "confidence" not in mem:
                     mem["confidence"] = 0.6
-                
+
                 valid_memories.append(mem)
             
             logger.info(f"✅ Validated {len(valid_memories)}/{len(memories)} memories")
@@ -413,16 +467,30 @@ Return ONLY the JSON array. No other text."""
         content_hash = abs(hash(content)) % 10000
         memory_id = f"mem_{timestamp}_{content_hash}"
         
-        # Build metadata (Mem0-style)
+        # Build metadata (v2.0 schema - MCP parity)
         mem_metadata = {
+            # Core fields
             "content": content,
-            "categories": ",".join(memory.get("categories", [])),
             "confidence": float(memory.get("confidence", 0.6)),
+            "timestamp": datetime.now().isoformat(),  # Legacy field (keep for compatibility)
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
-            "version": 1
+            "version": 1,
+
+            # Legacy categories field (keep for backward compatibility)
+            "categories": ",".join(memory.get("categories", [])) if memory.get("categories") else "",
+
+            # V2.0 fields - MCP parity
+            "tags": memory.get("tags", []),  # Array (replaces CSV categories)
+            "category": memory.get("category", "misc"),  # Single category
+            "importance": memory.get("importance", 5),  # 1-10 scale
+            "pinned": memory.get("pinned", False),
+            "archived": memory.get("archived", False),
+            "sentiment": memory.get("sentiment", "neutral"),  # positive/negative/neutral/mixed
+            "word_count": len(content.split()),
+            "event_date": memory.get("event_date")  # Optional: when event occurred
         }
-        
+
         # Add identifiers
         if user_id:
             mem_metadata["user_id"] = user_id
@@ -430,7 +498,7 @@ Return ONLY the JSON array. No other text."""
             mem_metadata["agent_id"] = agent_id
         if run_id:
             mem_metadata["run_id"] = run_id
-        
+
         # Add custom metadata
         if metadata:
             mem_metadata.update(metadata)
