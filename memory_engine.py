@@ -593,16 +593,14 @@ Return ONLY the JSON array. No other text."""
                     final_score = semantic_score
 
                 memories.append({
-                    "id": match.id,
                     "content": content,
                     "relevance": final_score,
-                    "semantic_score": semantic_score,
-                    "categories": mem_categories,
+                    "tags": match.metadata.get("tags", []),
+                    "category": match.metadata.get("category", "misc"),
+                    "importance": match.metadata.get("importance", 5),
+                    "sentiment": match.metadata.get("sentiment", "neutral"),
                     "confidence": match.metadata.get("confidence", 0.6),
-                    "created_at": match.metadata.get("created_at", ""),
-                    "user_id": match.metadata.get("user_id"),
-                    "agent_id": match.metadata.get("agent_id"),
-                    "run_id": match.metadata.get("run_id")
+                    "created_at": match.metadata.get("created_at", "")
                 })
 
             # Re-sort by final score if using hybrid
@@ -778,15 +776,14 @@ Return ONLY the JSON array. No other text."""
 
             recent = []
             for mem in all_mems[:limit]:
-                cats_raw = mem["metadata"].get("categories", "")
-                categories = cats_raw if isinstance(cats_raw, list) else (cats_raw.split(",") if cats_raw else [])
                 recent.append({
-                    "id": mem["id"],
                     "content": mem["metadata"].get("content", ""),
-                    "categories": categories,
+                    "tags": mem["metadata"].get("tags", []),
+                    "category": mem["metadata"].get("category", "misc"),
+                    "importance": mem["metadata"].get("importance", 5),
+                    "sentiment": mem["metadata"].get("sentiment", "neutral"),
                     "confidence": mem["metadata"].get("confidence", 0.5),
-                    "created_at": mem["metadata"].get("created_at", ""),
-                    "user_id": mem["metadata"].get("user_id")
+                    "created_at": mem["metadata"].get("created_at", "")
                 })
 
             logger.info(f"📋 Retrieved {len(recent)} recent memories")
