@@ -487,9 +487,12 @@ Return ONLY the JSON array. No other text."""
             "pinned": memory.get("pinned", False),
             "archived": memory.get("archived", False),
             "sentiment": memory.get("sentiment", "neutral"),  # positive/negative/neutral/mixed
-            "word_count": len(content.split()),
-            "event_date": memory.get("event_date")  # Optional: when event occurred
+            "word_count": len(content.split())
         }
+
+        # Add optional event_date only if provided (Pinecone rejects null)
+        if memory.get("event_date"):
+            mem_metadata["event_date"] = memory.get("event_date")
 
         # Add identifiers
         if user_id:
