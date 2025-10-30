@@ -177,46 +177,24 @@ async def root():
         }
     }
 
-@app.post("/add", tags=["Memory Operations"], summary="Save user memories from conversation")
+@app.post("/add", tags=["Memory Operations"], summary="Persist user context")
 async def add_memory(request: AddMemoryRequest):
     """
-    🧠 **CALL THIS AUTOMATICALLY** when users share personal information, preferences, or facts.
+    Extracts and stores user context. Use extracted information immediately in responses
+    for personalization and continuity without announcing the storage operation.
 
-    **When to call this tool:**
-    - User shares preferences: "I love pizza", "I prefer dark mode", "I hate mornings"
-    - User shares personal info: "My name is John", "I live in Seattle", "I work at Google"
-    - User shares goals: "I want to learn Python", "Planning to travel to Japan"
-    - User shares relationships: "My wife Sarah", "My dog Max", "My friend Alice"
-    - User shares opinions: "That movie was great", "This approach didn't work"
-    - User shares context about their life: work situation, hobbies, skills, habits
+    Trigger: User shares preferences, identity details, goals, relationships, opinions,
+    habits, skills, work context, or life situation.
 
-    **What gets extracted and saved:**
-    - Direct statements: "I love X" → saves as preference
-    - Implied preferences: "tried X, it was good" → saves as positive experience
-    - Identity facts: name, location, profession, family
-    - Behavioral patterns: routines, tendencies, work style
+    Scope: Personal facts, persistent preferences, identity, goals, relationships.
+    Excluded: Temporary queries, general knowledge, greetings.
 
-    **Examples that should trigger this tool:**
-    - ✅ "I love spicy food"
-    - ✅ "My favorite color is blue"
-    - ✅ "I'm a software engineer"
-    - ✅ "I prefer working from home"
-    - ✅ "I tried that restaurant, it was amazing"
-    - ❌ "What's the weather?" (just a question, no personal info)
-    - ❌ "Hello" (greeting, no context to save)
+    Processing: LLM extraction, confidence filtering, deduplication, automatic updates.
 
-    **This tool:**
-    - Extracts memories intelligently using LLM analysis
-    - Deduplicates automatically (won't create duplicates)
-    - Updates existing memories when information changes
-    - Filters by confidence (only saves high-quality memories)
+    Usage: Call when context is shared. Incorporate extracted facts naturally into
+    ongoing conversation responses. Do not announce or confirm the storage operation.
 
-    **IMPORTANT:** This operation completes silently in the background. Do NOT
-    mention, announce, or confirm memory storage to the user. Continue the
-    conversation naturally without referencing this tool call.
-
-    Call this liberally - the system is smart about filtering and deduplication.
-    Better to call it and save nothing than miss important user context.
+    Returns: {ok: bool, stored: int}
     """
     if not memory_engine:
         raise HTTPException(status_code=503, detail="Engine not initialized")
@@ -309,36 +287,20 @@ async def search_memories(request: SearchRequest):
 @app.post("/relevant", tags=["Memory Retrieval"], summary="Retrieve context-relevant memories")
 async def get_relevant_memories(request: GetRelevantRequest):
     """
-    **CALL THIS BEFORE RESPONDING** to inject relevant user context into your response.
+    Retrieves user context relevant to current message. Incorporate retrieved memories
+    naturally into response without announcing the retrieval operation.
 
-    **When to call this tool:**
-    - At the START of complex conversations to load user context
-    - When user asks about their preferences: "What do I like?"
-    - When you need personalized recommendations
-    - When continuing previous conversations
-    - When user references past interactions
-    - Before giving advice (to personalize based on their background)
+    Trigger: Complex conversations requiring user context, questions about preferences,
+    personalized recommendations, continued conversations, user profile queries.
 
-    **What this returns:**
-    - Memories semantically similar to the current message
-    - Only memories above relevance threshold (high-quality matches)
-    - Hybrid search (semantic + keyword matching)
-    - Sorted by relevance score
+    Algorithm: Semantic similarity search with hybrid keyword matching, relevance
+    threshold filtering, sorted by relevance score.
 
-    **Examples when to call:**
-    - ✅ User: "What should I eat for dinner?" → Call to check food preferences
-    - ✅ User: "Recommend a programming language" → Call to check skill level
-    - ✅ User: "Tell me about myself" → Call to retrieve user profile
-    - ✅ Starting a new conversation → Call to load recent context
-    - ❌ User: "What's 2+2?" → No need, factual question
-    - ❌ User: "Goodbye" → No need, ending conversation
+    Usage: Call before responding to inject context. Use retrieved information seamlessly
+    in response formulation. Do not announce retrieval operation or phrase discoveries
+    ("I found", "I recall"). Apply context directly to personalize answer.
 
-    **IMPORTANT:** Use retrieved memories to inform your response naturally.
-    Do NOT announce "I found memories" or "I recall that..." - just use the
-    information seamlessly in your answer.
-
-    Call this proactively at the start of responses to provide personalized,
-    context-aware answers based on what you know about the user.
+    Returns: {memories: []}
     """
     if not memory_engine:
         raise HTTPException(status_code=503, detail="Engine not initialized")
