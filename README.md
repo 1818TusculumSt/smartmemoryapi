@@ -29,14 +29,34 @@ EMBEDDING_MODEL=llama-text-embed-v2
 
 ## What's New in v2.0
 
+### Currently Implemented ✅
+
 - **Auto-categorization**: 10 types (achievement, frustration, idea, fact, event, conversation, relationship, technical, personal, misc)
-- **Importance scoring**: 1-10 scale, auto-assigned
+- **Importance scoring**: 1-10 scale, auto-assigned by LLM
 - **Sentiment detection**: positive, negative, neutral, mixed
-- **Tags**: Array-based organization
+- **Tags**: Array-based organization for flexible categorization
 - **Pinning & archiving**: Flag critical memories, soft-delete others
 - **Smart updates**: Memories evolve (0.85-0.94 similarity) instead of duplicating
+- **Memory consolidation**: Merge related memory fragments
+- **Hybrid search**: Semantic + keyword matching
+- **Recent memories**: Time-sorted retrieval
 
 **Backward compatible** - all existing memories still work.
+
+### Future Roadmap 🚀
+
+See [smartmemory-v2-omnibus-spec.md](smartmemory-v2-omnibus-spec.md) for the complete v2.0 roadmap including:
+
+- **Advanced time-based retrieval** - Timeline views, gaps analysis, period summaries
+- **Enhanced tag management** - Tag statistics, bulk tagging, tag-based search
+- **Relationship queries** - Semantic similarity, explicit memory linking
+- **Analytics & insights** - Comprehensive stats, pattern detection, trend analysis
+- **Advanced search** - Multi-dimensional filtering (tags, dates, importance, sentiment, entities)
+- **Quality curation** - Duplicate detection, importance management, bulk operations
+- **Smart summaries** - AI-generated recaps of time periods
+- **Export capabilities** - JSON, Markdown, CSV formats
+
+The omnibus spec provides detailed implementation plans, API designs, and MCP tool definitions for all planned features.
 
 ## Features
 
