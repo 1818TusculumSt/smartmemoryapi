@@ -67,6 +67,7 @@ class MemoryEngine:
             "multilingual-e5-large": 1024,
             # API models
             "voyage-3.5": 1024,
+            "voyage-3.5-lite": 1024,
             "voyage-3": 1024,
             "voyage-large-2": 1536,
             "voyage-code-2": 1536,
